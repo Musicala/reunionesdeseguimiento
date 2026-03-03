@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="es-CO">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
+  <title>Actas · Musicala</title>
+
+  <meta name="theme-color" content="#0C41C4" />
+  <meta name="color-scheme" content="light" />
+  <meta name="description" content="Sistema de actas de seguimiento Musicala: reuniones, retroalimentaciones, acuerdos y proyección." />
+
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body>
+
+  <noscript>
+    <div style="padding:14px;background:#ffe8e8;color:#600;font-weight:600;">
+      Esta aplicación necesita JavaScript para funcionar.
+    </div>
+  </noscript>
+
+  <a class="skip" href="#main">Saltar al contenido</a>
+
+  <!-- ============================= -->
+  <!-- TOPBAR -->
+  <!-- ============================= -->
+  <header class="topbar" role="banner">
+    <div class="brand" aria-label="Musicala Actas">
+      <div class="logo" aria-hidden="true">📝</div>
+      <div class="brandText">
+        <div class="title">Actas de Seguimiento</div>
+        <div class="subtitle">
+          Musicala · <span id="appModeLabel">Admin</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="topActions" role="group" aria-label="Acciones principales">
+      <div id="savePill" class="pill" aria-live="polite">⚪ Listo</div>
+
+      <div class="divider" aria-hidden="true"></div>
+
+      <button id="btnNew" class="btn primary" type="button">
+        + Nueva reunión
+      </button>
+
+      <button id="btnCopyPrompt" class="btn" type="button" disabled>
+        Copiar prompt
+      </button>
+    </div>
+  </header>
+
+  <!-- ============================= -->
+  <!-- LAYOUT -->
+  <!-- ============================= -->
+  <div class="layout">
+
+    <!-- ============================= -->
+    <!-- SIDEBAR -->
+    <!-- ============================= -->
+    <aside class="sidebar" aria-label="Histórico de reuniones">
+
+      <div class="sideHeader">
+        <div class="sideTitle">Histórico</div>
+        <div class="sideHint">Selecciona para abrir</div>
+      </div>
+
+      <div class="filters" role="search">
+        <label class="srOnly" for="qEmployee">Buscar reuniones</label>
+        <input
+          id="qEmployee"
+          class="input"
+          placeholder="Buscar por nombre o periodo…"
+          autocomplete="off"
+        />
+      </div>
+
+      <div id="meetingList" class="list" role="list"></div>
+
+      <div id="emptyList" class="empty hidden">
+        No hay reuniones aún.
+      </div>
+
+    </aside>
+
+    <!-- ============================= -->
+    <!-- MAIN -->
+    <!-- ============================= -->
+    <main id="main" class="main" tabindex="-1">
+
+      <!-- ============================= -->
+      <!-- DATOS GENERALES -->
+      <!-- ============================= -->
+      <section class="card" aria-label="Datos generales de la reunión">
+
+        <div class="cardHeader">
+          <div>
+            <h1 class="h1">Reunión</h1>
+            <div class="muted tiny">
+              Información base de la evaluación
+            </div>
+          </div>
+
+          <div class="meta">
+            <span id="meetingIdTag" class="tag hidden">ID: —</span>
+            <span id="statusTag" class="tag">draft</span>
+          </div>
+        </div>
+
+        <div class="grid2">
+
+          <label class="field">
+            <span class="label">Fecha</span>
+            <input id="fDate" class="input" type="date" />
+          </label>
+
+          <label class="field">
+            <span class="label">Periodo evaluado</span>
+            <input id="fPeriod" class="input" placeholder="Ej: Enero 2026" />
+          </label>
+
+          <label class="field">
+            <span class="label">Trabajador</span>
+            <input id="fEmployeeName" class="input" placeholder="Nombre completo" />
+          </label>
+
+          <label class="field">
+            <span class="label">Cargo</span>
+            <input id="fRole" class="input" placeholder="Ej: Coordinador académico" />
+          </label>
+
+          <label class="field">
+            <span class="label">Área</span>
+            <select id="fArea" class="input">
+              <option value="administrativa">Administrativa</option>
+              <option value="academica">Académica</option>
+              <option value="ventas">Ventas</option>
+              <option value="otra">Otra</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span class="label">Tipo de evaluación</span>
+            <select id="fTemplate" class="input">
+              <option value="admin">Administrativos</option>
+              <option value="docente">Docentes</option>
+            </select>
+            <span class="hint">
+              Define qué secciones aparecen según el tipo.
+            </span>
+          </label>
+
+          <label class="field">
+            <span class="label">Asistentes (separados por coma)</span>
+            <input id="fAttendees" class="input" placeholder="Ej: Alek, Cata" />
+          </label>
+
+          <label class="field">
+            <span class="label">Lugar / Modalidad</span>
+            <input id="fPlace" class="input" placeholder="Ej: Sede / Virtual / Centro X" />
+          </label>
+
+        </div>
+
+        <div class="row">
+
+          <button id="btnFinalize" class="btn danger" type="button" disabled>
+            Marcar como FINAL
+          </button>
+
+          <button id="btnUnfinalize" class="btn" type="button" disabled>
+            Volver a DRAFT
+          </button>
+
+          <div class="spacer"></div>
+
+          <button id="btnClearLocal" class="btn ghost" type="button">
+            Limpiar borrador local
+          </button>
+
+        </div>
+
+      </section>
+
+      <!-- ============================= -->
+      <!-- SECCIONES -->
+      <!-- ============================= -->
+      <section class="card" aria-label="Secciones de evaluación">
+
+        <div class="cardHeader">
+          <div>
+            <h2 class="h2">Secciones</h2>
+            <p class="muted">
+              Estado y notas por sección. Los acuerdos se consolidan automáticamente.
+            </p>
+          </div>
+
+          <div class="chipRow">
+            <button id="btnExpandAll" class="btn small ghost" type="button">
+              Expandir todo
+            </button>
+            <button id="btnCollapseAll" class="btn small ghost" type="button">
+              Contraer todo
+            </button>
+          </div>
+        </div>
+
+        <div id="sectionsWrap" class="sections"></div>
+
+      </section>
+
+      <!-- ============================= -->
+      <!-- ACUERDOS CONSOLIDADOS -->
+      <!-- ============================= -->
+      <section class="card" aria-label="Acuerdos consolidados">
+
+        <div class="cardHeader">
+          <div>
+            <h2 class="h2">Acuerdos consolidados</h2>
+            <p class="muted">
+              Vista unificada de todos los acuerdos definidos en las secciones.
+            </p>
+          </div>
+
+          <div class="chipRow">
+            <button id="btnCopyActions" class="btn small" type="button" disabled>
+              Copiar acuerdos
+            </button>
+          </div>
+        </div>
+
+        <div class="actionsBox">
+          <div id="actionsEmpty" class="emptySmall">
+            Aún no hay acuerdos registrados.
+          </div>
+
+          <div id="actionsList" class="actionsList hidden"></div>
+        </div>
+
+      </section>
+
+      <!-- ============================= -->
+      <!-- PROMPT -->
+      <!-- ============================= -->
+      <section class="card" aria-label="Vista previa del prompt">
+
+        <div class="cardHeader">
+          <div>
+            <h2 class="h2">Vista previa del prompt</h2>
+            <p class="muted">
+              Se genera automáticamente con base en lo que ustedes escribieron.
+            </p>
+          </div>
+
+          <div class="chipRow">
+            <button id="btnRefreshPrompt" class="btn small ghost" type="button">
+              Refrescar
+            </button>
+          </div>
+        </div>
+
+        <textarea
+          id="promptPreview"
+          class="textarea mono"
+          rows="14"
+          readonly
+        ></textarea>
+
+        <div class="row mini">
+          <div class="muted tiny">
+            El botón “Copiar prompt” se activa cuando la reunión está abierta.
+          </div>
+          <div class="spacer"></div>
+          <button id="btnSelectPrompt" class="btn small ghost" type="button">
+            Seleccionar todo
+          </button>
+        </div>
+
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ============================= -->
+  <!-- TOAST -->
+  <!-- ============================= -->
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+  <!-- ============================= -->
+  <!-- APP -->
+  <!-- ============================= -->
+  <script type="module" defer src="./app.js"></script>
+
+  <!-- Minimal accesibility helpers -->
+  <script>
+    (function(){
+      const id = "srOnlyFix";
+      if (document.getElementById(id)) return;
+      const s = document.createElement("style");
+      s.id = id;
+      s.textContent = `
+        .srOnly{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+        .muted.tiny{font-size:12px;opacity:.75}
+        .chipRow{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+        .btn.small{padding:8px 10px;font-size:13px;border-radius:14px}
+      `;
+      document.head.appendChild(s);
+    })();
+  </script>
+
+</body>
+</html>
