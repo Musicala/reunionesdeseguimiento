@@ -337,6 +337,12 @@ body{
   line-height: 1.2;
   min-width: 0;
 }
+.sectionHint{
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
 
 .sectionControls{
   display:flex;
@@ -520,5 +526,143 @@ body{
   .toast{
     bottom: max(14px, env(safe-area-inset-bottom));
     right: max(14px, env(safe-area-inset-right));
+  }
+}
+/* ========= Estado inicial sin reunión ========= */
+.startState{
+  min-height: 360px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 42px 24px;
+}
+.startState .h1{
+  font-size: clamp(22px, 3vw, 34px);
+}
+.startState .muted{
+  max-width: 620px;
+  font-size: 15px;
+  line-height: 1.55;
+}
+.startIcon{
+  width: 72px;
+  height: 72px;
+  border-radius: 24px;
+  display: grid;
+  place-items: center;
+  font-size: 32px;
+  background: linear-gradient(135deg, rgba(12,65,196,.13), rgba(216,76,154,.12));
+  border: 1px solid rgba(12,65,196,.16);
+  box-shadow: var(--shadow2);
+}
+.startActions{
+  justify-content: center;
+}
+
+/* ========= Modal de configuración ========= */
+.modalBackdrop{
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(11,16,32,.30);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.modalPanel{
+  width: min(920px, 100%);
+  max-height: min(84vh, 760px);
+  overflow: auto;
+  background: rgba(255,255,255,.97);
+  border: 1px solid rgba(11,16,32,.12);
+  border-radius: 24px;
+  box-shadow: 0 24px 70px rgba(11,16,32,.24);
+  padding: 18px;
+}
+.modalTitle{
+  font-size: 20px;
+  font-weight: 850;
+  letter-spacing: -.2px;
+  margin-bottom: 6px;
+}
+.configRows{
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+.configAddBox{
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.4fr) 90px auto;
+  gap: 8px;
+  align-items: start;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid rgba(12,65,196,.16);
+  border-radius: 16px;
+  background: rgba(12,65,196,.05);
+}
+.configRow{
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) minmax(220px, 1.2fr) auto auto auto auto minmax(110px, auto);
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid rgba(11,16,32,.09);
+  border-radius: 16px;
+  background: rgba(246,248,255,.72);
+}
+.configRow input[type="checkbox"]{
+  width: 18px;
+  height: 18px;
+  accent-color: var(--blue);
+}
+.configDescription{
+  min-height: 42px;
+  resize: vertical;
+}
+.configCheck{
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.configKey{
+  font-family: var(--mono);
+  font-size: 11px;
+  color: rgba(11,16,32,.48);
+  text-align: right;
+}
+.modalActions{
+  margin-top: 16px;
+  align-items: center;
+}
+
+@media (max-width: 720px){
+  .configAddBox{
+    grid-template-columns: 1fr;
+  }
+  .configRow{
+    grid-template-columns: auto 1fr 1fr;
+  }
+  .configDescription,
+  .configCheck{
+    grid-column: 2 / -1;
+  }
+  .configKey{
+    grid-column: 2 / -1;
+    text-align: left;
+  }
+  .modalActions{
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .modalActions .spacer{
+    display: none;
   }
 }

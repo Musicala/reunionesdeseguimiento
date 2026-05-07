@@ -90,10 +90,23 @@
     <!-- ============================= -->
     <main id="main" class="main" tabindex="-1">
 
+      <section id="noMeetingState" class="card startState">
+        <div class="startIcon" aria-hidden="true">📝</div>
+        <h1 class="h1">Primero crea o abre una reunión</h1>
+        <p class="muted">
+          Para evitar registros sin guardar, los campos solo aparecen cuando hay una reunión creada o abierta.
+        </p>
+        <div class="row startActions">
+          <button id="btnNewEmpty" class="btn primary" type="button">
+            + Crear nueva reunión
+          </button>
+        </div>
+      </section>
+
       <!-- ============================= -->
       <!-- DATOS GENERALES -->
       <!-- ============================= -->
-      <section class="card" aria-label="Datos generales de la reunión">
+      <section class="card meetingOnly" aria-label="Datos generales de la reunión">
 
         <div class="cardHeader">
           <div>
@@ -187,7 +200,7 @@
       <!-- ============================= -->
       <!-- SECCIONES -->
       <!-- ============================= -->
-      <section class="card" aria-label="Secciones de evaluación">
+      <section class="card meetingOnly" aria-label="Secciones de evaluación">
 
         <div class="cardHeader">
           <div>
@@ -198,6 +211,9 @@
           </div>
 
           <div class="chipRow">
+            <button id="btnConfigureSections" class="btn small" type="button">
+              Configurar secciones
+            </button>
             <button id="btnExpandAll" class="btn small ghost" type="button">
               Expandir todo
             </button>
@@ -214,7 +230,7 @@
       <!-- ============================= -->
       <!-- ACUERDOS CONSOLIDADOS -->
       <!-- ============================= -->
-      <section class="card" aria-label="Acuerdos consolidados">
+      <section class="card meetingOnly" aria-label="Acuerdos consolidados">
 
         <div class="cardHeader">
           <div>
@@ -244,7 +260,7 @@
       <!-- ============================= -->
       <!-- PROMPT -->
       <!-- ============================= -->
-      <section class="card" aria-label="Vista previa del prompt">
+      <section class="card meetingOnly" aria-label="Vista previa del prompt">
 
         <div class="cardHeader">
           <div>

@@ -64,6 +64,69 @@ const STATUS_OPTIONS = [
 
 const ACTION_STATUS = ["pendiente", "en progreso", "listo"];
 
+function defaultSectionConfig(templateKey = "admin"){
+  const tpl = TEMPLATES[templateKey] || TEMPLATES.admin;
+  return tpl.sections.map((s, index) => ({
+    key: s.key,
+    title: s.title,
+    description: s.description || "",
+    enabled: true,
+    visible: true,
+    applies: true,
+    archived: false,
+    custom: false,
+    order: index
+  }));
+}
+
+function allDefaultSections(){
+  return Object.values(TEMPLATES).flatMap(t => t.sections);
+}
+
+function normalizeSectionConfig(meeting){
+  const templateKey = templateFromMeeting(meeting);
+  const defaults = defaultSectionConfig(templateKey);
+  const incoming = Array.isArray(meeting?.sectionConfig) ? meeting.sectionConfig : [];
+  const byKey = new Map();
+  const defaultKeys = new Set(defaults.map(def => def.key));
+
+  incoming.forEach((item, index) => {
+    const key = safeTrim(item?.key);
+    if (!key) return;
+    const def = defaults.find(d => d.key === key);
+    const visible = item?.visible !== false && item?.enabled !== false;
+    const custom = item?.custom === true || !defaultKeys.has(key);
+    byKey.set(key, {
+      key,
+      title: safeTrim(item?.title) || def?.title || key,
+      description: safeTrim(item?.description || item?.guide || def?.description || ""),
+      enabled: visible,
+      visible,
+      applies: item?.applies !== false,
+      archived: item?.archived === true,
+      custom,
+      order: Number.isFinite(Number(item?.order)) ? Number(item.order) : index
+    });
+  });
+
+  defaults.forEach(def => {
+    if (!byKey.has(def.key)) byKey.set(def.key, def);
+  });
+
+  return Array.from(byKey.values())
+    .filter(item => item.archived !== true)
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map((item, index) => ({ ...item, order: index }));
+}
+
+function getSectionTitleByKey(meeting, key){
+  const cfg = Array.isArray(meeting?.sectionConfig) ? meeting.sectionConfig : defaultSectionConfig(templateFromMeeting(meeting));
+  const custom = cfg.find(s => s.key === key);
+  if (custom?.title) return custom.title;
+  const fallback = allDefaultSections().find(s => s.key === key);
+  return fallback?.title || key;
+}
+
 /* =============================
    STATE
 ============================= */
@@ -84,6 +147,8 @@ const savePill = $("savePill");
 const meetingList = $("meetingList");
 const emptyList = $("emptyList");
 const qEmployee = $("qEmployee");
+const noMeetingState = $("noMeetingState");
+const meetingOnlyCards = Array.from(document.querySelectorAll(".meetingOnly"));
 
 // Form
 const fDate = $("fDate");
@@ -100,6 +165,7 @@ const appModeLabel = $("appModeLabel");
 
 // Buttons
 const btnNew = $("btnNew");
+const btnNewEmpty = $("btnNewEmpty");
 const btnCopyPrompt = $("btnCopyPrompt");
 const btnFinalize = $("btnFinalize");
 const btnUnfinalize = $("btnUnfinalize");
@@ -108,6 +174,7 @@ const btnClearLocal = $("btnClearLocal");
 // Optional helpers
 const btnExpandAll = $("btnExpandAll");
 const btnCollapseAll = $("btnCollapseAll");
+const btnConfigureSections = $("btnConfigureSections");
 const btnCopyActions = $("btnCopyActions");
 const btnRefreshPrompt = $("btnRefreshPrompt");
 const btnSelectPrompt = $("btnSelectPrompt");
@@ -150,6 +217,27 @@ function showToast(msg){
   showToast._t = setTimeout(() => toast.classList.add("hidden"), 2400);
 }
 
+function renderEmptyState(){
+  const hasMeeting = !!currentMeetingId && !!currentMeeting;
+
+  noMeetingState?.classList.toggle("hidden", hasMeeting);
+  meetingOnlyCards.forEach(card => card.classList.toggle("hidden", !hasMeeting));
+
+  if (!hasMeeting){
+    meetingIdTag?.classList.add("hidden");
+    statusTag && (statusTag.textContent = "sin reunión");
+    if (appModeLabel) appModeLabel.textContent = "Sin reunión";
+    if (promptPreview) promptPreview.value = "";
+    if (sectionsWrap) sectionsWrap.innerHTML = "";
+    if (actionsList) actionsList.innerHTML = "";
+    actionsEmpty?.classList.remove("hidden");
+    if (btnCopyPrompt) btnCopyPrompt.disabled = true;
+    if (btnCopyActions) btnCopyActions.disabled = true;
+    if (btnFinalize) btnFinalize.disabled = true;
+    if (btnUnfinalize) btnUnfinalize.disabled = true;
+  }
+}
+
 function escapeHtml(s){
   return (s ?? "").toString()
     .replaceAll("&","&amp;")
@@ -172,12 +260,37 @@ function templateFromMeeting(m){
 function getTemplate(){ return templateFromMeeting(currentMeeting); }
 
 function getSectionDefs(){
-  const t = getTemplate();
-  return TEMPLATES[t].sections;
+  if (!currentMeeting) return defaultSectionConfig("admin");
+  return normalizeSectionConfig(currentMeeting).filter(s => s.visible !== false && s.enabled !== false && s.archived !== true);
+}
+
+function getAllSectionDefsForConfig(){
+  if (!currentMeeting) return defaultSectionConfig("admin");
+  return normalizeSectionConfig(currentMeeting);
 }
 
 function nowId(){
   return `a_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,7)}`;
+}
+
+function makeSectionKey(title, existingKeys = []){
+  const base = safeTrim(title)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 42) || "nueva-seccion";
+  const taken = new Set(existingKeys);
+  let key = `custom-${base}`;
+  while (taken.has(key)){
+    key = `custom-${base}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,5)}`;
+  }
+  return key;
+}
+
+function isSectionNoAplica(sec){
+  return safeTrim(sec?.status).toLowerCase().includes("no aplica");
 }
 
 function normalizeAction(a, sectionKey, sectionTitle){
@@ -206,17 +319,21 @@ function ensureSectionShape(sec){
 }
 
 function ensureMeetingSections(m){
-  const defsAll = Object.values(TEMPLATES).flatMap(t => t.sections);
-  const allKeys = Array.from(new Set(defsAll.map(s => s.key)));
+  const config = normalizeSectionConfig(m);
+  const defsAll = allDefaultSections();
+  const allKeys = Array.from(new Set([
+    ...defsAll.map(s => s.key),
+    ...config.map(s => s.key),
+    ...Object.keys(m.sections || {})
+  ]));
 
   const sections = { ...(m.sections || {}) };
   allKeys.forEach(k => { sections[k] = ensureSectionShape(sections[k]); });
 
-  const titleByKey = {};
-  defsAll.forEach(s => (titleByKey[s.key] = s.title));
-
   allKeys.forEach(k => {
-    sections[k].actions = (sections[k].actions || []).map(a => normalizeAction(a, k, titleByKey[k] || ""));
+    sections[k].actions = (sections[k].actions || []).map(a =>
+      normalizeAction(a, k, getSectionTitleByKey(m, k))
+    );
   });
 
   return sections;
@@ -272,6 +389,7 @@ function makeBaseMeeting(template = "admin"){
     attendees: [],
     attendeesText: "",
     place: "",
+    sectionConfig: defaultSectionConfig(t),
     sections,
     actionItems: []
   };
@@ -288,6 +406,7 @@ function normalizeMeeting(m){
   const out = { ...base, ...(m || {}) };
 
   out.template = templateFromMeeting(out);
+  out.sectionConfig = normalizeSectionConfig(out);
 
   out.attendeesText = (out.attendeesText ?? "").toString();
   out.attendees = Array.isArray(out.attendees) ? out.attendees : parseAttendees(out.attendeesText);
@@ -543,7 +662,8 @@ function applyMeetingListFilter(){
    RENDER FORM
 ============================= */
 function renderAll(){
-  if (!currentMeeting) return;
+  renderEmptyState();
+  if (!currentMeetingId || !currentMeeting) return;
 
   statusTag && (statusTag.textContent = currentMeeting.status);
   if (appModeLabel) appModeLabel.textContent = TEMPLATES[getTemplate()].titleSuffix;
@@ -573,7 +693,8 @@ function renderSections(){
   const defs = getSectionDefs();
 
   defs.forEach(def => {
-    const sec = currentMeeting.sections[def.key];
+    const sec = currentMeeting.sections[def.key] || ensureSectionShape(null);
+    currentMeeting.sections[def.key] = sec;
 
     const card = document.createElement("div");
     card.className = "section";
@@ -585,6 +706,12 @@ function renderSections(){
     const title = document.createElement("div");
     title.className = "sectionTitle";
     title.textContent = def.title;
+    if (def.description){
+      const hint = document.createElement("div");
+      hint.className = "sectionHint";
+      hint.textContent = def.description;
+      title.appendChild(hint);
+    }
 
     const controls = document.createElement("div");
     controls.className = "sectionControls";
@@ -734,15 +861,19 @@ function deleteAction(sectionKey, actionId){
 
 function consolidateActions(m){
   const out = [];
-  const defs = TEMPLATES[templateFromMeeting(m)].sections;
-
-  const titleByKey = {};
-  Object.values(TEMPLATES).flatMap(t => t.sections).forEach(s => (titleByKey[s.key] = s.title));
+  const defs = normalizeSectionConfig(m).filter(s =>
+    s.enabled !== false &&
+    s.visible !== false &&
+    s.applies !== false &&
+    s.archived !== true
+  );
 
   defs.forEach(s => {
     const sec = m.sections?.[s.key];
-    (sec?.actions || []).forEach(a => {
-      const norm = normalizeAction(a, s.key, titleByKey[s.key] || s.title);
+    if (!sec || isSectionNoAplica(sec)) return;
+
+    (sec.actions || []).forEach(a => {
+      const norm = normalizeAction(a, s.key, s.title);
 
       const hasContent =
         !!safeTrim(norm.title) ||
@@ -880,6 +1011,245 @@ function renderActionsAndPrompt(){
 }
 
 /* =============================
+   SECTION CONFIG MODAL
+============================= */
+function openSectionsConfigModal(){
+  if (!currentMeetingId || !currentMeeting){
+    showToast("Primero crea o abre una reunion");
+    return;
+  }
+
+  let draft = getAllSectionDefsForConfig().map(x => ({ ...x }));
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "modalBackdrop";
+  backdrop.setAttribute("role", "dialog");
+  backdrop.setAttribute("aria-modal", "true");
+
+  const modal = document.createElement("div");
+  modal.className = "modalPanel sectionConfigPanel";
+
+  const close = () => backdrop.remove();
+
+  const title = document.createElement("div");
+  title.className = "modalTitle";
+  title.textContent = "Configurar secciones";
+
+  const desc = document.createElement("p");
+  desc.className = "muted";
+  desc.textContent = "Edita el nombre, la descripcion, el orden, la visibilidad y si cada seccion aplica para esta reunion. Las secciones ocultas o No aplica no saldran en el acta.";
+
+  const addBox = document.createElement("div");
+  addBox.className = "configAddBox";
+
+  const addTitle = document.createElement("input");
+  addTitle.className = "input";
+  addTitle.placeholder = "Nombre de la nueva seccion";
+
+  const addDescription = document.createElement("textarea");
+  addDescription.className = "textarea";
+  addDescription.rows = 2;
+  addDescription.placeholder = "Descripcion o guia interna opcional";
+
+  const addOrder = document.createElement("input");
+  addOrder.className = "input";
+  addOrder.type = "number";
+  addOrder.min = "1";
+  addOrder.placeholder = "Orden";
+
+  const addSection = document.createElement("button");
+  addSection.type = "button";
+  addSection.className = "btn";
+  addSection.textContent = "+ Agregar seccion";
+
+  addBox.append(addTitle, addDescription, addOrder, addSection);
+
+  const rows = document.createElement("div");
+  rows.className = "configRows";
+
+  function renderRows(){
+    rows.innerHTML = "";
+
+    draft.forEach((item, index) => {
+      const row = document.createElement("div");
+      row.className = "configRow";
+
+      const visible = document.createElement("input");
+      visible.type = "checkbox";
+      visible.checked = item.visible !== false && item.enabled !== false;
+      visible.title = "Mostrar esta seccion";
+      visible.onchange = () => {
+        item.visible = visible.checked;
+        item.enabled = visible.checked;
+      };
+
+      const input = document.createElement("input");
+      input.className = "input";
+      input.value = item.title;
+      input.placeholder = "Nombre de la seccion";
+      input.oninput = () => { item.title = input.value; };
+
+      const description = document.createElement("textarea");
+      description.className = "textarea configDescription";
+      description.rows = 2;
+      description.value = item.description || "";
+      description.placeholder = "Descripcion o guia interna opcional";
+      description.oninput = () => { item.description = description.value; };
+
+      const appliesWrap = document.createElement("label");
+      appliesWrap.className = "configCheck";
+      const applies = document.createElement("input");
+      applies.type = "checkbox";
+      applies.checked = item.applies !== false;
+      applies.onchange = () => { item.applies = applies.checked; };
+      appliesWrap.append(applies, document.createTextNode(" Aplica"));
+
+      const up = document.createElement("button");
+      up.type = "button";
+      up.className = "btn small ghost";
+      up.textContent = "Subir";
+      up.disabled = index === 0;
+      up.onclick = () => {
+        [draft[index - 1], draft[index]] = [draft[index], draft[index - 1]];
+        renderRows();
+      };
+
+      const down = document.createElement("button");
+      down.type = "button";
+      down.className = "btn small ghost";
+      down.textContent = "Bajar";
+      down.disabled = index === draft.length - 1;
+      down.onclick = () => {
+        [draft[index + 1], draft[index]] = [draft[index], draft[index + 1]];
+        renderRows();
+      };
+
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "btn small ghost";
+      remove.textContent = item.custom ? "Quitar" : "Ocultar";
+      remove.onclick = () => {
+        if (item.custom){
+          item.archived = true;
+          item.visible = false;
+          item.enabled = false;
+          draft = draft.filter(x => x.key !== item.key);
+          renderRows();
+          return;
+        }
+        item.visible = false;
+        item.enabled = false;
+        visible.checked = false;
+      };
+
+      const label = document.createElement("div");
+      label.className = "configKey";
+      label.textContent = item.custom ? item.key + " - personalizada" : item.key;
+
+      row.append(visible, input, description, appliesWrap, up, down, remove, label);
+      rows.appendChild(row);
+    });
+  }
+
+  addSection.onclick = () => {
+    const sectionTitle = safeTrim(addTitle.value);
+    if (!sectionTitle){
+      showToast("Escribe el nombre de la nueva seccion");
+      addTitle.focus();
+      return;
+    }
+
+    const key = makeSectionKey(sectionTitle, [
+      ...draft.map(x => x.key),
+      ...Object.keys(currentMeeting.sections || {})
+    ]);
+
+    const newSection = {
+      key,
+      title: sectionTitle,
+      description: safeTrim(addDescription.value),
+      enabled: true,
+      visible: true,
+      applies: true,
+      archived: false,
+      custom: true,
+      order: draft.length
+    };
+
+    const desiredOrder = Number(addOrder.value);
+    if (Number.isFinite(desiredOrder) && desiredOrder > 0){
+      draft.splice(Math.min(desiredOrder - 1, draft.length), 0, newSection);
+    } else {
+      draft.push(newSection);
+    }
+
+    addTitle.value = "";
+    addDescription.value = "";
+    addOrder.value = "";
+    renderRows();
+  };
+
+  const actions = document.createElement("div");
+  actions.className = "row modalActions";
+
+  const reset = document.createElement("button");
+  reset.type = "button";
+  reset.className = "btn ghost";
+  reset.textContent = "Restablecer plantilla";
+  reset.onclick = () => {
+    draft = defaultSectionConfig(getTemplate()).map(x => ({ ...x }));
+    renderRows();
+  };
+
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "btn ghost";
+  cancel.textContent = "Cancelar";
+  cancel.onclick = close;
+
+  const apply = document.createElement("button");
+  apply.type = "button";
+  apply.className = "btn primary";
+  apply.textContent = "Guardar cambios";
+  apply.onclick = async () => {
+    currentMeeting.sectionConfig = draft.map((item, index) => ({
+      key: item.key,
+      title: safeTrim(item.title) || getSectionTitleByKey(currentMeeting, item.key),
+      description: safeTrim(item.description || ""),
+      enabled: item.visible !== false && item.enabled !== false,
+      visible: item.visible !== false && item.enabled !== false,
+      applies: item.applies !== false,
+      archived: item.archived === true,
+      custom: item.custom === true,
+      order: index
+    }));
+
+    currentMeeting.sectionConfig.forEach(cfg => {
+      if (!currentMeeting.sections[cfg.key]) currentMeeting.sections[cfg.key] = ensureSectionShape(null);
+      const sec = currentMeeting.sections?.[cfg.key];
+      if (!sec?.actions) return;
+      sec.actions = sec.actions.map(a => normalizeAction(a, cfg.key, cfg.title));
+    });
+
+    currentMeeting = normalizeMeeting(currentMeeting);
+    renderAll();
+    await saveNow({ reason: "Configuracion de secciones guardada" });
+    close();
+  };
+
+  actions.append(reset, document.createElement("div"), cancel, apply);
+  actions.children[1].className = "spacer";
+
+  modal.append(title, desc, addBox, rows, actions);
+  backdrop.appendChild(modal);
+  backdrop.addEventListener("click", e => { if (e.target === backdrop) close(); });
+  document.body.appendChild(backdrop);
+
+  renderRows();
+  addTitle.focus();
+}
+
+/* =============================
    FORM + EVENTS
 ============================= */
 function bindForm(){
@@ -929,6 +1299,7 @@ function bindForm(){
       // Auto-template: si cambian a académica, sugerimos docente
       if (currentMeeting.template === "admin" && fArea.value === "academica"){
         currentMeeting.template = "docente";
+        currentMeeting.sectionConfig = normalizeSectionConfig(currentMeeting);
         if (fTemplate) fTemplate.value = "docente";
         renderAll();
       }
@@ -953,6 +1324,7 @@ function bindForm(){
       if (!currentMeeting) return;
       const next = TEMPLATES[fTemplate.value] ? fTemplate.value : "admin";
       currentMeeting.template = next;
+      currentMeeting.sectionConfig = normalizeSectionConfig(currentMeeting);
       renderAll();
       debounceSave();
     };
@@ -998,6 +1370,8 @@ async function copyText(text){
 
 function wireButtons(){
   btnNew && (btnNew.onclick = createMeeting);
+  btnNewEmpty && (btnNewEmpty.onclick = createMeeting);
+  btnConfigureSections && (btnConfigureSections.onclick = openSectionsConfigModal);
   btnClearLocal && (btnClearLocal.onclick = clearLocalDraft);
 
   btnFinalize && (btnFinalize.onclick = () => setStatus("final"));
@@ -1060,10 +1434,13 @@ window.addEventListener("offline", () => setPill("offline"));
   wireButtons();
   wireSearch();
 
-  // Render vacío (sin reunión abierta)
-  currentMeeting = normalizeMeeting(makeEmptyMeeting({ template: "admin" }));
+  // Estado inicial: sin reunión abierta.
+  // No mostramos campos editables si no hay un documento guardable abierto.
+  currentMeetingId = null;
+  currentMeeting = null;
   renderAll();
   btnCopyPrompt && (btnCopyPrompt.disabled = true);
 
   await listMeetings();
 })();
+
