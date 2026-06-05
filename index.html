@@ -24,11 +24,34 @@
   <a class="skip" href="#main">Saltar al contenido</a>
 
   <!-- ============================= -->
+  <!-- LOGIN GATE -->
+  <!-- ============================= -->
+  <div id="authGate" class="authGate" aria-hidden="false">
+    <div class="authCard">
+      <div class="authLogo" aria-hidden="true">
+        <img src="./logo.png" alt="Logo Musicala"
+             onerror="this.replaceWith(document.createTextNode('📝'))" />
+      </div>
+      <h1 class="authTitle">Actas de Seguimiento · Musicala</h1>
+      <p class="authText">Inicia sesión con tu cuenta autorizada para continuar.</p>
+
+      <button id="btnGoogleLogin" class="btn primary authBtn" type="button">
+        Iniciar sesión con Google
+      </button>
+
+      <div id="authError" class="authError hidden" role="alert"></div>
+    </div>
+  </div>
+
+  <!-- ============================= -->
   <!-- TOPBAR -->
   <!-- ============================= -->
   <header class="topbar" role="banner">
     <div class="brand" aria-label="Musicala Actas">
-      <div class="logo" aria-hidden="true">📝</div>
+      <div class="logo" aria-hidden="true">
+        <img src="./logo.png" alt="Logo Musicala"
+             onerror="this.replaceWith(document.createTextNode('📝'))" />
+      </div>
       <div class="brandText">
         <div class="title">Actas de Seguimiento</div>
         <div class="subtitle">
@@ -48,6 +71,13 @@
 
       <button id="btnCopyPrompt" class="btn" type="button" disabled>
         Copiar prompt
+      </button>
+
+      <div class="divider" aria-hidden="true"></div>
+
+      <span id="userChip" class="userChip hidden" title="Sesión iniciada"></span>
+      <button id="btnLogout" class="btn hidden" type="button">
+        Salir
       </button>
     </div>
   </header>
@@ -75,6 +105,16 @@
           placeholder="Buscar por nombre o periodo…"
           autocomplete="off"
         />
+        <div class="filterRow">
+          <select id="fltKind" class="input" aria-label="Filtrar por tipo de reunión">
+            <option value="">Todos los tipos</option>
+          </select>
+          <select id="fltStatus" class="input" aria-label="Filtrar por estado">
+            <option value="">Todos los estados</option>
+            <option value="draft">draft</option>
+            <option value="final">final</option>
+          </select>
+        </div>
       </div>
 
       <div id="meetingList" class="list" role="list"></div>
@@ -118,6 +158,7 @@
 
           <div class="meta">
             <span id="meetingIdTag" class="tag hidden">ID: —</span>
+            <span id="kindTag" class="tag tagKind hidden">—</span>
             <span id="statusTag" class="tag">draft</span>
           </div>
         </div>
@@ -175,7 +216,28 @@
             <input id="fPlace" class="input" placeholder="Ej: Sede / Virtual / Centro X" />
           </label>
 
+          <label class="field">
+            <span class="label">Tipo de reunión</span>
+            <select id="fMeetingKind" class="input">
+              <option value="">Selecciona…</option>
+            </select>
+            <span class="hint">Define el enfoque y las validaciones al finalizar.</span>
+          </label>
+
+          <label class="field fieldWide">
+            <span class="label">Objetivo específico de la reunión (opcional)</span>
+            <input id="fObjective" class="input" placeholder="Ej: Revisar el plan de mejora acordado en abril" />
+          </label>
+
         </div>
+
+        <div id="disciplinaryAlert" class="alertBox hidden" role="alert"></div>
+
+        <label class="field fieldFrame">
+          <span class="label">Encuadre de la reunión</span>
+          <textarea id="fMeetingFrame" class="textarea" rows="3"></textarea>
+          <span class="hint">Se incluye en el prompt y en el acta. Puedes ajustarlo si lo necesitas.</span>
+        </label>
 
         <div class="row">
 
@@ -187,6 +249,14 @@
             Volver a DRAFT
           </button>
 
+          <button id="btnDuplicate" class="btn" type="button">
+            Duplicar reunión
+          </button>
+
+          <button id="btnBackupJson" class="btn" type="button">
+            Exportar respaldo JSON
+          </button>
+
           <div class="spacer"></div>
 
           <button id="btnClearLocal" class="btn ghost" type="button">
@@ -195,6 +265,45 @@
 
         </div>
 
+      </section>
+
+      <!-- ============================= -->
+      <!-- FRASES ÚTILES (guía general) -->
+      <!-- ============================= -->
+      <section class="card meetingOnly" aria-label="Frases útiles para dirigir la reunión">
+        <div class="cardHeader">
+          <div>
+            <h2 class="h2">Frases útiles para dirigir la reunión</h2>
+            <p class="muted">
+              Apoyo de conducción para Alek y Cata. No se guardan en el acta.
+            </p>
+          </div>
+          <div class="chipRow">
+            <button id="btnToggleGeneralGuide" class="btn small" type="button">
+              Mostrar frases
+            </button>
+          </div>
+        </div>
+        <div id="generalGuideBody" class="generalGuide hidden"></div>
+      </section>
+
+      <!-- ============================= -->
+      <!-- SEGUIMIENTO DE ACUERDOS ANTERIORES -->
+      <!-- ============================= -->
+      <section class="card meetingOnly" aria-label="Seguimiento de acuerdos anteriores">
+        <div class="cardHeader">
+          <div>
+            <h2 class="h2">Seguimiento de acuerdos anteriores</h2>
+            <p class="muted">
+              Acuerdos pendientes de reuniones previas de este trabajador.
+            </p>
+          </div>
+        </div>
+
+        <div id="prevActionsEmpty" class="emptySmall">
+          No se encontraron acuerdos pendientes de reuniones anteriores.
+        </div>
+        <div id="prevActionsList" class="prevList hidden"></div>
       </section>
 
       <!-- ============================= -->

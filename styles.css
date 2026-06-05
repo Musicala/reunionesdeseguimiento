@@ -85,9 +85,20 @@ body{
 .logo{
   width: 38px; height: 38px; border-radius: 14px;
   display: grid; place-items: center;
+  overflow: hidden;
   background: linear-gradient(135deg, rgba(12,65,196,.14), rgba(91,61,246,.10));
   border: 1px solid rgba(12,65,196,.18);
   box-shadow: var(--shadow2);
+}
+.logo img{
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.authLogo img{
+  width: 56px; height: 56px;
+  object-fit: contain;
+  display: inline-block;
 }
 .brandText{ min-width: 0; }
 .title{ font-weight: 800; letter-spacing: .2px; }
@@ -179,6 +190,19 @@ body{
 .item .row1{ display: flex; justify-content: space-between; gap: 10px; }
 .item .name{ font-weight: 750; }
 .item .date{ font-size: 12px; color: var(--muted); white-space: nowrap; }
+.item .row1Right{ display: flex; align-items: center; gap: 8px; }
+.item .btnDeleteItem{
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 8px;
+  opacity: 0.55;
+  transition: opacity .15s, background .15s;
+}
+.item .btnDeleteItem:hover{ opacity: 1; background: rgba(220, 38, 38, 0.12); }
 .item .row2{ margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; }
 .metaSmall{ font-size: 12px; color: var(--muted); }
 
@@ -665,4 +689,165 @@ body{
   .modalActions .spacer{
     display: none;
   }
+}
+
+/* =============================
+   LOGIN GATE / AUTH
+============================= */
+.authGate{
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: linear-gradient(135deg, #eef2ff, #f7f8ff);
+}
+.authGate.hidden{ display: none; }
+
+.authCard{
+  width: 100%;
+  max-width: 380px;
+  background: #fff;
+  border-radius: 18px;
+  padding: 32px 26px;
+  text-align: center;
+  box-shadow: 0 18px 50px rgba(12, 65, 196, 0.18);
+}
+.authLogo{ font-size: 40px; margin-bottom: 8px; }
+.authTitle{ font-size: 19px; font-weight: 800; margin: 0 0 6px; }
+.authText{ font-size: 14px; color: var(--muted); margin: 0 0 20px; }
+.authBtn{ width: 100%; justify-content: center; }
+.authError{
+  margin-top: 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #ffe8e8;
+  color: #8a1c1c;
+  font-size: 13px;
+  font-weight: 600;
+}
+.authError.hidden{ display: none; }
+
+.userChip{
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.userChip.hidden,
+#btnLogout.hidden{ display: none; }
+
+/* =============================
+   v4 — Conducción de reuniones
+============================= */
+
+/* Filtros del histórico */
+.filterRow{ display:flex; gap:8px; }
+.filterRow .input{ font-size:13px; padding:8px 10px; }
+
+/* Badges / tags nuevos */
+.tagKind{
+  background: rgba(91,61,246,.12);
+  border: 1px solid rgba(91,61,246,.25);
+  color: #3b2bbf;
+}
+.badge.badgeKind{
+  background: rgba(91,61,246,.10);
+  border: 1px solid rgba(91,61,246,.22);
+  color:#3b2bbf;
+}
+.item .row3{ margin-top:6px; }
+
+/* Campos anchos */
+.field.fieldWide{ grid-column: 1 / -1; }
+.field.fieldFrame{ display:grid; gap:6px; margin-top:10px; }
+
+/* Alerta sobria (tipos de reunión sensibles) */
+.alertBox{
+  margin: 12px 0 4px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #fff6e6;
+  border: 1px solid #f0c66b;
+  color: #6b4e09;
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+.alertBox.hidden{ display:none; }
+
+/* Aviso suave dentro de sección */
+.sectionWarn{
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #fff3f3;
+  border: 1px solid #f3c0c0;
+  color: #8a1c1c;
+  font-size: 12.5px;
+}
+.sectionWarn.hidden{ display:none; }
+
+/* Guía del facilitador */
+.guideToggle{ margin: 0 0 8px; }
+.guideToggle.active{ background: rgba(12,65,196,.12); }
+.guideBox{
+  margin: 0 0 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(91,61,246,.05);
+  border: 1px solid rgba(91,61,246,.16);
+}
+.guideBox.hidden,
+.generalGuide.hidden{ display:none; }
+.guideBlock{ margin-bottom: 10px; }
+.guideBlock:last-child{ margin-bottom: 0; }
+.guideLabel{
+  font-weight: 750; font-size: 13px; color:#3b2bbf; margin-bottom: 4px;
+}
+.guideList{ margin: 0; padding-left: 18px; }
+.guideList li{ font-size: 13.5px; line-height: 1.45; margin: 2px 0; }
+.guideNote{ margin-top: 8px; font-size: 12px; color: var(--muted); font-style: italic; }
+
+.generalGuide{
+  display:grid; gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+.generalGuide .guideBlock{
+  background: rgba(255,255,255,.7);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+/* Seguimiento de acuerdos anteriores */
+.prevList{ display:grid; gap:10px; }
+.prevList.hidden{ display:none; }
+.prevRow{
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,.75);
+}
+.prevTitle{ font-weight: 700; }
+.prevMeta{ font-size: 12px; color: var(--muted); margin: 2px 0 8px; }
+.prevCtrl{ display:grid; grid-template-columns: 200px 1fr; gap: 8px; }
+
+/* Acuerdos: grids compactos */
+.actionGrid.g3{ grid-template-columns: 1.4fr 1fr 1fr; }
+.actionGrid.g4{ grid-template-columns: 1fr 1fr 1fr 1fr; }
+.actionRow{ display:grid; gap:8px; }
+.actionFooter{ display:flex; justify-content:flex-end; }
+
+@media (max-width: 820px){
+  .actionGrid.g3, .actionGrid.g4{ grid-template-columns: 1fr 1fr; }
+  .prevCtrl{ grid-template-columns: 1fr; }
+}
+@media (max-width: 520px){
+  .actionGrid.g3, .actionGrid.g4{ grid-template-columns: 1fr; }
+  .filterRow{ flex-direction: column; }
 }

@@ -7,6 +7,10 @@ import {
   persistentLocalCache,
   persistentMultipleTabManager
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+import {
+  getAuth,
+  GoogleAuthProvider
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBld9AaA4OyRxB_NV7ZPpqJXoMkzJYcdgo",
@@ -26,3 +30,14 @@ export const db = initializeFirestore(app, {
     tabManager: persistentMultipleTabManager()
   })
 });
+
+// Autenticación con Google
+export const auth = getAuth(app);
+export const googleProvider = new GoogleAuthProvider();
+
+// Correos autorizados a usar la app.
+// (En minúsculas. Debe coincidir con la lista en firestore.rules)
+export const ALLOWED_EMAILS = [
+  "alekcaballeromusic@gmail.com",
+  "catalina.medina.leal@gmail.com"
+];

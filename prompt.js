@@ -1,12 +1,11 @@
-// prompt.js — construye el prompt a partir del meeting model (v3.1)
+// prompt.js — construye el prompt a partir del meeting model (v4)
 // ✅ Soporta templates: admin / docente (sin romper reuniones viejas)
-// ✅ Usa sectionTitle del modelo si existe, y cae a títulos por template
-// ✅ Resistente a reuniones “viejas” (fields alternos / faltantes)
-// ✅ Acciones por sección + consolidado
-// ✅ Instrucciones claras: NO inventar, rellenar con "No se registró información"
-// ✅ Obliga a: REESCRIBIR con otras palabras (no copiar textual)
-// ✅ Permite: explicar/mejorar redacción para claridad profesional (sin inventar hechos)
-// ✅ Tabla de acuerdos lista para copiar a un acta
+// ✅ Incluye: tipo de reunión, encuadre, objetivo, seguimiento de acuerdos anteriores
+// ✅ NO omite secciones con contenido (aunque estén "No revisado" o "No aplica")
+// ✅ Omite solo secciones realmente vacías (sin notas ni acuerdos)
+// ✅ Separa: hechos observados / versión del trabajador / lectura institucional / acuerdos / apoyos
+// ✅ NO incluye las frases guía del facilitador
+// ✅ Mantiene: no inventar, reescribir sin copiar textual, "No se registró información"
 
 export function buildPrompt(meeting){
   const m = meeting || {};
@@ -14,117 +13,99 @@ export function buildPrompt(meeting){
   // ---------- Utils ----------
   const safe = (v) => (v ?? "").toString().trim();
   const safeOneLine = (v) => safe(v).replace(/\s+/g, " ");
-  const safeMultiline = (v) => safe(v); // deja saltos si vienen del user
+  const safeMultiline = (v) => safe(v);
 
   const normalizeNoInfo = (v) => {
     const s = safeMultiline(v);
-    return s ? s : "No se registró información.";
+    return s ? s : "No se registró información";
   };
 
   const toISODateMaybe = (v) => {
     const s = safe(v);
     if (!s) return "";
-    // soporta "YYYY-MM-DD" o "YYYY/MM/DD" o Date-like
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
     if (/^\d{4}\/\d{2}\/\d{2}$/.test(s)) return s.replaceAll("/", "-");
     const d = new Date(s);
-    if (!Number.isNaN(d.getTime())) {
+    if (!Number.isNaN(d.getTime())){
       const y = d.getFullYear();
       const mo = String(d.getMonth() + 1).padStart(2, "0");
       const da = String(d.getDate()).padStart(2, "0");
       return `${y}-${mo}-${da}`;
     }
-    return s; // si es un formato raro, lo devolvemos tal cual
+    return s;
   };
 
   const normalizeArea = (v) => {
     const s = safeOneLine(v).toLowerCase();
     if (!s) return "";
-    // normaliza tildes para casos típicos
-    const t = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const t = s.normalize("NFD").replace(/[̀-ͯ]/g, "");
     if (t.includes("academ")) return "Académica";
     if (t.includes("admin")) return "Administrativa";
     if (t.includes("venta")) return "Ventas";
-    // primera letra mayúscula
     return s.charAt(0).toUpperCase() + s.slice(1);
   };
 
   const asListText = (v) => {
-    if (Array.isArray(v)) {
-      return v
-        .filter(Boolean)
-        .map(x => safeOneLine(x))
-        .filter(Boolean)
-        .join(", ");
-    }
+    if (Array.isArray(v)) return v.filter(Boolean).map(x => safeOneLine(x)).filter(Boolean).join(", ");
     return safeOneLine(v);
   };
-
   const uniq = (arr) => Array.from(new Set((arr || []).filter(Boolean)));
-
   const cleanForTable = (s) => safeOneLine(s).replaceAll("|", "/");
 
   // ---------- Templates ----------
-  // OJO: Las keys deben coincidir con las sections que genera app.js
   const TEMPLATES = {
     admin: {
       label: "Administrativos",
       areaDefault: "Administrativa",
       sections: [
-        ["agradecimiento","Agradecimiento por el trabajo hasta la fecha"],
-        ["retroEstudiantes","Seguimiento de retroalimentaciones de estudiantes"],
-        ["retroAdmin","Seguimiento de retroalimentaciones administrativas (Musicala)"],
-        ["distintivos","Uso de distintivos (chaqueta, carnet)"],
+        ["agradecimiento","Reconocimiento de avances y aspectos positivos del periodo"],
+        ["retroEstudiantes","Retroalimentaciones de estudiantes o usuarios"],
+        ["retroAdmin","Retroalimentaciones administrativas internas"],
+        ["distintivos","Cumplimiento de protocolos y distintivos"],
         ["puntualidad","Puntualidad y registro de jornadas"],
-        ["bitacora","Bitácora de tareas"],
-        ["kpis","KPI's"],
-        ["proyeccion","Proyección"],
-        ["palabrasTrabajador","Palabras del trabajador (comentarios, sugerencias)"],
-        ["mejorasCargo","Retroalimentaciones y puntos de mejora en el cargo"],
+        ["bitacora","Bitácora, tareas y trazabilidad del cargo"],
+        ["comunicacion","Calidad de comunicación y atención"],
+        ["funcionesCargo","Funciones del cargo y claridad de responsabilidades"],
+        ["kpis","KPI's o indicadores del periodo"],
+        ["bloqueos","Bloqueos, riesgos o dificultades para cumplir el cargo"],
+        ["apoyosMusicala","Apoyos requeridos por Musicala"],
+        ["proyeccion","Proyección del siguiente periodo"],
+        ["palabrasTrabajador","Palabras del trabajador"],
+        ["mejorasCargo","Retroalimentaciones y puntos de mejora"],
         ["bienestar","Espacios de bienestar"],
+        ["cierre","Cierre de entendimiento y observaciones finales"],
       ]
     },
     docente: {
       label: "Docentes",
       areaDefault: "Académica",
       sections: [
-        ["agradecimiento","Agradecimiento por el trabajo hasta la fecha"],
-        ["retroEstudiantes","Seguimiento de retroalimentaciones de estudiantes"],
-        ["retroAdmin","Seguimiento de retroalimentaciones administrativas (Musicala)"],
-        ["distintivos","Uso de distintivos (chaqueta, carnet)"],
-        ["puntualidad","Puntualidad y registro de jornadas"],
-        ["bitacora","Bitácora de tareas"],
+        ["agradecimiento","Reconocimiento de avances y aspectos positivos del periodo"],
         ["registroClases","Registro de clases"],
+        ["planeacion","Planeación y bitácora pedagógica"],
+        ["manejoGrupo","Manejo de grupo"],
+        ["relacionEstudiantes","Relación con estudiantes, líderes o acudientes"],
         ["muestrasProceso","Muestras de proceso"],
-        ["proyeccion","Proyección"],
-        ["palabrasDocente","Palabras del docente (comentarios, sugerencias)"],
-        ["mejorasCargo","Retroalimentaciones y puntos de mejora en el cargo"],
+        ["avancesPedagogicos","Avances pedagógicos"],
+        ["apoyoInstitucional","Necesidades de apoyo institucional"],
+        ["puntualidad","Puntualidad y registro de jornadas"],
+        ["proyeccion","Proyección del siguiente periodo"],
+        ["palabrasDocente","Palabras del docente"],
         ["bienestar","Espacios de bienestar"],
       ]
     }
   };
 
   const templateKey = (() => {
-    // soporta meeting.template o meeting.type (legacy)
     const t = safe(m.template || m.type).toLowerCase();
     return TEMPLATES[t] ? t : "admin";
   })();
-
   const template = TEMPLATES[templateKey];
 
   const normalizeSectionConfigForPrompt = () => {
     const defaults = template.sections.map(([key, title], index) => ({
-      key,
-      title,
-      description: "",
-      enabled: true,
-      visible: true,
-      applies: true,
-      archived: false,
-      custom: false,
-      order: index
+      key, title, description: "", enabled: true, visible: true, applies: true, archived: false, custom: false, order: index
     }));
-
     const incoming = Array.isArray(m.sectionConfig) ? m.sectionConfig : [];
     const byKey = new Map();
     const defaultKeys = new Set(defaults.map(d => d.key));
@@ -138,18 +119,14 @@ export function buildPrompt(meeting){
         key,
         title: safeOneLine(item?.title) || def?.title || key,
         description: safeMultiline(item?.description || item?.guide || def?.description || ""),
-        enabled: visible,
-        visible,
+        enabled: visible, visible,
         applies: item?.applies !== false,
         archived: item?.archived === true,
         custom: item?.custom === true || !defaultKeys.has(key),
         order: Number.isFinite(Number(item?.order)) ? Number(item.order) : index
       });
     });
-
-    defaults.forEach(def => {
-      if (!byKey.has(def.key)) byKey.set(def.key, def);
-    });
+    defaults.forEach(def => { if (!byKey.has(def.key)) byKey.set(def.key, def); });
 
     return Array.from(byKey.values())
       .filter(item => item.archived !== true)
@@ -157,18 +134,16 @@ export function buildPrompt(meeting){
       .map((item, index) => ({ ...item, order: index }));
   };
 
-  const isNoAplica = (status) => {
-    const s = safeOneLine(status).toLowerCase();
-    return s.includes("no aplica");
-  };
+  const isNoAplica = (status) => safeOneLine(status).toLowerCase().includes("no aplica");
 
-  // ---------- Basic header data (compat con legacy fields) ----------
+  // ---------- Header data ----------
   const dateStr   = toISODateMaybe(m.dateISO || m.date || m.fecha);
   const period    = safeOneLine(m.periodLabel || m.period || m.periodo);
   const employee  = safeOneLine(m.employeeName || m.workerName || m.trabajador || m.nombreTrabajador);
   const role      = safeOneLine(m.role || m.cargo);
   const area      = normalizeArea(m.area) || template.areaDefault;
   const place     = safeOneLine(m.place || m.modalidad || m.lugar);
+  const meetingKind = safeOneLine(m.meetingKind) || "No se registró información";
 
   const attendees = (() => {
     const raw = m.attendees || m.asistentes || m.attendeesText;
@@ -182,29 +157,28 @@ export function buildPrompt(meeting){
   const statusRaw = safeOneLine(m.status || m.estado);
   const status = statusRaw || "draft";
 
-  // ---------- Objective ----------
-  // Si no hay objetivo explícito, creamos uno genérico (plantilla válida, no inventa hechos)
+  // ---------- Encuadre + objetivo ----------
+  const meetingFrame = safeMultiline(m.meetingFrame) ||
+    "Esta reunión corresponde a un espacio de seguimiento y retroalimentación, y no constituye por sí misma una diligencia de descargos ni una decisión disciplinaria.";
+
   const objective = safeMultiline(m.objective || m.objetivo) ||
     `Realizar seguimiento al desempeño y procesos asociados del/de la ${template.label.toLowerCase()} en Musicala, revisando avances, observaciones, acuerdos y proyección.`;
 
-  // ---------- Sections rendering ----------
+  // ---------- Secciones ----------
   const sectionsObj = (m.sections && typeof m.sections === "object") ? m.sections : {};
-
   const sectionConfig = normalizeSectionConfigForPrompt();
   const applicableSectionKeys = new Set();
 
   const hasRelevantText = (v) => {
     const txt = safeOneLine(v).toLowerCase();
-    const plain = txt.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const plain = txt.normalize("NFD").replace(/[̀-ͯ]/g, "");
     return !!plain && plain !== "no se registro informacion" && plain !== "no aplica";
   };
 
   const renderSection = (item) => {
     const key = item.key;
     const s = (sectionsObj && sectionsObj[key] && typeof sectionsObj[key] === "object") ? sectionsObj[key] : {};
-
-    const st = safeOneLine(s.status) || "No registrado";
-    if (isNoAplica(st)) return "";
+    const st = safeOneLine(s.status) || "No revisado";
 
     const actions = Array.isArray(s.actions) ? s.actions : [];
     const actionTitles = actions
@@ -213,25 +187,30 @@ export function buildPrompt(meeting){
       .slice(0, 12);
 
     const notesRaw = safeMultiline(s.notes || s.note || s.comentarios);
-    if (!hasRelevantText(notesRaw) && !actionTitles.length) return "";
+    const hasNotes = hasRelevantText(notesRaw);
+    const hasActions = actionTitles.length > 0;
+
+    // REGLA: omitir solo si NO hay notas ni acuerdos (vacía de verdad).
+    // Si hay contenido, se incluye SIEMPRE, aunque esté "No aplica" o "No revisado".
+    if (!hasNotes && !hasActions) return "";
 
     applicableSectionKeys.add(key);
 
     const title = item.title || safeOneLine(s.sectionTitle) || key;
     const notes = normalizeNoInfo(notesRaw);
-    const description = safeMultiline(item.description)
-      ? "- Guia interna de la seccion: " + safeMultiline(item.description)
+    const noAplicaFlag = isNoAplica(st)
+      ? "- Nota de revisión: la sección fue marcada como 'No aplica' pero contiene información registrada; inclúyela con prudencia."
       : "";
 
     const actionsText = actionTitles.length
       ? "- Acuerdos (insumo para reescribir):\n" + actionTitles.map(x => "  - " + x).join("\n")
-      : "- Acuerdos: No se registro informacion.";
+      : "- Acuerdos: No se registró información";
 
     return [
       "## " + title,
-      description,
       "- Estado: " + st,
-      "- Notas (insumo para reescribir): " + notes,
+      noAplicaFlag,
+      "- Notas / hechos observados (insumo para reescribir): " + notes,
       actionsText,
       ""
     ].filter(line => line !== "").join("\n");
@@ -241,9 +220,28 @@ export function buildPrompt(meeting){
     .filter(item => item.enabled !== false && item.visible !== false && item.applies !== false && item.archived !== true)
     .map(item => renderSection(item))
     .filter(Boolean)
-    .join("\n") || "No se registraron secciones aplicables para incluir en el acta.";
+    .join("\n") || "No se registraron secciones con contenido para incluir en el acta.";
 
-  // ---------- Agreements / actionItems (consolidado) ----------
+  // ---------- Seguimiento de acuerdos anteriores ----------
+  const prevReview = Array.isArray(m.previousActionsReview) ? m.previousActionsReview : [];
+  const prevBlock = prevReview.length
+    ? prevReview.slice(0, 40).map((r, i) => {
+        const title = safeOneLine(r?.originalTitle) || "No se registró información";
+        const date  = safeOneLine(r?.sourceDate) || "No se registró información";
+        const prev  = safeOneLine(r?.previousStatus) || "No se registró información";
+        const foll  = safeOneLine(r?.followStatus) || "No se registró información";
+        const comm  = safeMultiline(r?.comment) || "No se registró información";
+        return [
+          `${i + 1}) Acuerdo anterior: ${title}`,
+          `   - Fecha anterior: ${date}`,
+          `   - Estado anterior: ${prev}`,
+          `   - Estado de seguimiento: ${foll}`,
+          `   - Comentario de seguimiento: ${comm}`
+        ].join("\n");
+      }).join("\n")
+    : "No se encontraron acuerdos pendientes de reuniones anteriores.";
+
+  // ---------- Acuerdos (consolidado) ----------
   const rawActionItems =
     Array.isArray(m.actionItems) ? m.actionItems
     : Array.isArray(m.acuerdos) ? m.acuerdos
@@ -254,7 +252,6 @@ export function buildPrompt(meeting){
   const actionItems = rawActionItems.filter(a => {
     const obj = (a && typeof a === "object") ? a : {};
     const key = safeOneLine(obj.sectionKey || obj.seccionKey || "");
-    // Si no hay sección asociada, lo conservamos para no perder información registrada.
     if (!key) return true;
     return applicableSectionKeys.has(key);
   });
@@ -263,33 +260,31 @@ export function buildPrompt(meeting){
     const obj = (a && typeof a === "object") ? a : { title: a };
     return {
       title: safeOneLine(obj.title || obj.accion || obj.acuerdo) || "No se registró información",
+      type:  safeOneLine(obj.type) || "acuerdo",
       owner: safeOneLine(obj.owner || obj.responsable) || "No se registró información",
       due:   toISODateMaybe(obj.dueDateISO || obj.fecha || obj.due) || "No se registró información",
+      follow: toISODateMaybe(obj.followUpDateISO) || "No se registró información",
+      prio:  safeOneLine(obj.priority) || "media",
       st:    safeOneLine(obj.status || obj.estado) || "pendiente",
       sec:   safeOneLine(obj.sectionTitle || obj.sectionKey || obj.seccion) || "No se registró información",
+      ev:    safeMultiline(obj.expectedEvidence) || "No se registró información",
       obs:   safeMultiline(obj.details || obj.observaciones || obj.notas) || "No se registró información",
     };
   };
 
   const actionsTable = (() => {
-    if (!actionItems.length) {
-      return [
-        "| Acción | Responsable | Fecha | Estado | Observaciones |",
-        "|---|---|---|---|---|",
-        "| No se registró información | No se registró información | No se registró información | No se registró información | No se registró información |"
+    const headTop = "| Acción | Tipo | Responsable | Compromiso | Seguimiento | Prioridad | Estado | Evidencia esperada |";
+    const headSep = "|---|---|---|---|---|---|---|---|";
+    if (!actionItems.length){
+      return [headTop, headSep,
+        "| No se registró información | acuerdo | No se registró información | No se registró información | No se registró información | media | pendiente | No se registró información |"
       ].join("\n");
     }
-
     const rows = actionItems.slice(0, 80).map(a => {
       const x = normalizeAction(a);
-      return `| ${cleanForTable(x.title)} | ${cleanForTable(x.owner)} | ${cleanForTable(x.due)} | ${cleanForTable(x.st)} | ${cleanForTable(x.obs)} |`;
+      return `| ${cleanForTable(x.title)} | ${cleanForTable(x.type)} | ${cleanForTable(x.owner)} | ${cleanForTable(x.due)} | ${cleanForTable(x.follow)} | ${cleanForTable(x.prio)} | ${cleanForTable(x.st)} | ${cleanForTable(x.ev)} |`;
     });
-
-    return [
-      "| Acción | Responsable | Fecha | Estado | Observaciones |",
-      "|---|---|---|---|---|",
-      ...rows
-    ].join("\n");
+    return [headTop, headSep, ...rows].join("\n");
   })();
 
   const actionsBlock = actionItems.length
@@ -297,40 +292,50 @@ export function buildPrompt(meeting){
         const x = normalizeAction(a);
         return [
           `${i + 1})`,
-          `Acción: ${x.title}`,
+          `Acción/acuerdo: ${x.title}`,
+          `Tipo: ${x.type}`,
           `Responsable: ${x.owner}`,
-          `Fecha: ${x.due}`,
+          `Fecha compromiso: ${x.due}`,
+          `Fecha seguimiento: ${x.follow}`,
+          `Prioridad: ${x.prio}`,
           `Estado: ${x.st}`,
           `Sección: ${x.sec}`,
+          `Evidencia esperada: ${x.ev}`,
           `Observaciones: ${x.obs}`
         ].join("\n");
       }).join("\n\n")
     : "No se registraron acuerdos.";
 
-  // ---------- Prompt header / instructions ----------
+  // ---------- Header / instrucciones ----------
   const header = [
     "Eres ChatGPT y tu tarea es redactar un ACTA institucional, formal, clara y profesional a partir del contenido registrado abajo.",
     "",
     "REGLAS CRÍTICAS (OBLIGATORIAS):",
     "- NO inventes información ni agregues hechos, fechas, cifras, nombres o situaciones que no estén registradas.",
     "- Si un dato aplicable no está registrado, escribe exactamente: 'No se registró información'. (Sin sinónimos.)",
-    "- Omite por completo las secciones marcadas como 'No aplica' o configuradas como ocultas. No las menciones en el acta final.",
+    "- Incluye todas las secciones que tengan contenido. Omite únicamente las secciones realmente vacías (sin notas ni acuerdos).",
+    "- No conviertas una reunión de seguimiento en una sanción disciplinaria si eso no fue expresamente registrado.",
+    "- No emitas diagnósticos personales, psicológicos ni juicios de carácter sobre el trabajador.",
     "",
     "REDACTOR PROFESIONAL (MUY IMPORTANTE):",
     "- NO transcribas ni copies textualmente ningún texto del contenido registrado.",
-    "- Debes reescribir con OTRAS PALABRAS todo: notas, observaciones, acuerdos, compromisos, comentarios y cierre.",
-    "- Mantén fielmente el sentido de lo escrito, pero convierte frases rápidas o informales en redacción institucional formal.",
-    "- Tu salida debe sonar como un acta oficial: coherente, ordenada, precisa y bien redactada.",
-    "- Puedes ampliar la explicación para que el texto sea claro y completo, siempre y cuando NO agregues hechos nuevos.",
+    "- Reescribe con OTRAS PALABRAS todo: notas, observaciones, acuerdos, comentarios y cierre.",
+    "- Mantén fielmente el sentido de lo escrito, pero conviértelo en redacción institucional formal.",
+    "- Puedes ampliar para dar claridad, siempre que NO agregues hechos nuevos.",
+    "",
+    "SEPARACIÓN OBLIGATORIA EN CADA SECCIÓN APLICABLE:",
+    "- Hechos observados (lo que se registró objetivamente).",
+    "- Versión / percepción del trabajador (si fue registrada; si no: 'No se registró información').",
+    "- Lectura institucional (interpretación de Musicala, sin juicios personales).",
+    "- Acuerdos derivados (qué se definió hacer).",
+    "- Apoyos de Musicala (qué se compromete la institución, si aplica).",
     "",
     "FORMATO Y ESTILO:",
-    "- Español neutro-formal, fácil de leer.",
-    "- Evita muletillas y repeticiones.",
-    "- Usa conectores y redacción fluida.",
-    "- No regañes ni dramatices. Mantén tono institucional humano.",
+    "- Español neutro-formal, fácil de leer. Evita muletillas y repeticiones. Tono institucional humano, sin regaños ni dramatismo.",
     "",
     `Empresa: Musicala`,
-    `Tipo de reunión: Seguimiento (${template.label})`,
+    `Tipo de evaluación: Seguimiento (${template.label})`,
+    `Tipo de reunión: ${meetingKind}`,
     `Estado del acta en sistema: ${status || "—"}`,
     `Fecha: ${dateStr || "—"}`,
     `Periodo evaluado: ${period || "—"}`,
@@ -340,16 +345,21 @@ export function buildPrompt(meeting){
     `Lugar/Modalidad: ${place || "—"}`,
     `Asistentes: ${attendees || "—"}`,
     "",
-    "OBJETIVO DE LA REUNIÓN (usar este texto como base, puedes reescribirlo con otras palabras sin cambiar el sentido):",
-    objective ? `- ${objective}` : "- No se registró información",
+    "ENCUADRE DE LA REUNIÓN (incluir al inicio del acta; reescribir con otras palabras sin cambiar el sentido):",
+    `- ${meetingFrame}`,
+    "",
+    "OBJETIVO DE LA REUNIÓN (usar como base; puedes reescribirlo sin cambiar el sentido):",
+    `- ${objective}`,
     "",
     "ESTRUCTURA OBLIGATORIA DEL ACTA (ENTREGABLE FINAL):",
-    "1) Encabezado (datos básicos)",
-    "2) Objetivo de la reunión",
-    "3) Desarrollo por secciones aplicables únicamente (redacción formal basada en las notas; incluir Estado + redacción; omitir secciones No aplica)",
-    "4) Acuerdos y compromisos (TABLA: Acción | Responsable | Fecha | Estado | Observaciones; redactar formalmente, no copiar textual)",
-    "5) Cierre (resumen breve + constancia)",
-    "6) Firmas (Musicala / Trabajador)",
+    "1) Encabezado (datos básicos, tipo de reunión)",
+    "2) Encuadre de la reunión",
+    "3) Objetivo de la reunión",
+    "4) Seguimiento de acuerdos anteriores (si hay)",
+    "5) Desarrollo por secciones con contenido (Hechos / Versión del trabajador / Lectura institucional / Acuerdos / Apoyos)",
+    "6) Acuerdos y compromisos (TABLA)",
+    "7) Cierre (resumen breve + constancia)",
+    "8) Firmas (Musicala / Trabajador)",
     "",
     "ENTREGA:",
     "- Devuelve el acta completa ya redactada, lista para copiar y pegar.",
@@ -357,11 +367,14 @@ export function buildPrompt(meeting){
     ""
   ].join("\n");
 
-  // ---------- Final prompt ----------
   return [
     header,
     "CONTENIDO REGISTRADO (INSUMO BASE. PROHIBIDO COPIAR TEXTUAL):",
     "",
+    "# Seguimiento de acuerdos anteriores",
+    prevBlock,
+    "",
+    "# Secciones del periodo",
     sectionLines,
     "## Acuerdos y compromisos (consolidado) — DETALLE (insumo)",
     actionsBlock,
@@ -370,6 +383,6 @@ export function buildPrompt(meeting){
     actionsTable,
     "",
     "REDACTA AHORA el ACTA COMPLETA siguiendo la ESTRUCTURA OBLIGATORIA.",
-    "Recuerda: reescribe con otras palabras TODO lo escrito, mejora claridad y formalidad, omite lo marcado como No aplica y NO inventes. Si falta algo aplicable: 'No se registró información'."
+    "Recuerda: reescribe con otras palabras TODO lo escrito, separa hechos/versión/lectura institucional/acuerdos/apoyos, incluye lo que tenga contenido, omite lo realmente vacío y NO inventes. Si falta algo aplicable: 'No se registró información'."
   ].join("\n");
 }
