@@ -4,11 +4,15 @@ console.log("APP JS CARGÓ ✅ (remejorado sin romper)");
 
 // Firestore
 import {
-  collection, addDoc, doc, getDoc, updateDoc,
+  collection, addDoc, doc, getDoc, updateDoc, deleteDoc,
   query, orderBy, limit, getDocs, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
-import { db } from "./firebase.js";
+import {
+  signInWithPopup, signOut, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+
+import { db, auth, googleProvider, ALLOWED_EMAILS } from "./firebase.js";
 import { buildPrompt } from "./prompt.js";
 
 /* =============================
@@ -189,6 +193,13 @@ const promptPreview = $("promptPreview");
 const meetingIdTag = $("meetingIdTag");
 const statusTag = $("statusTag");
 
+// Auth
+const authGate = $("authGate");
+const btnGoogleLogin = $("btnGoogleLogin");
+const authError = $("authError");
+const userChip = $("userChip");
+const btnLogout = $("btnLogout");
+
 // Toast
 const toast = $("toast");
 
@@ -196,6 +207,21 @@ const toast = $("toast");
    HELPERS
 ============================= */
 const isoToday = () => new Date().toISOString().slice(0, 10);
+
+const MESES_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
+  "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
+/* A partir de una fecha ISO (YYYY-MM-DD), devuelve el mes anterior
+   con su año, ej: "2026-06-05" -> "Mayo 2026". */
+function prevMonthLabel(iso){
+  if (!iso) return "";
+  const [y, m] = iso.split("-").map(Number);
+  if (!y || !m) return "";
+  // m es 1-12; el mes anterior con ajuste de año cuando es Enero
+  const d = new Date(y, m - 1, 1); // primer día del mes de la fecha
+  d.setMonth(d.getMonth() - 1);    // retrocede un mes
+  return `${MESES_ES[d.getMonth()]} ${d.getFullYear()}`;
+}
 
 function setPill(state, msg){
   const map = {
@@ -544,6 +570,46 @@ async function listMeetings(){
   }
 }
 
+async function deleteMeeting(id, label){
+  if (!id) return;
+
+  // Confirmación obligatoria para evitar borrados por error.
+  const nombre = (label || "").trim() || "esta acta";
+  const ok = window.confirm(
+    `¿Seguro que quieres borrar "${nombre}"?\n\n` +
+    `Esta acción NO se puede deshacer.`
+  );
+  if (!ok) return;
+
+  if (!navigator.onLine){
+    showToast("Sin conexión. No puedo borrar en Firestore ahora ⚠️");
+    return;
+  }
+
+  try{
+    await deleteDoc(doc(db, "meetings", id));
+
+    // Limpia el borrador local de esa acta.
+    try{ localStorage.removeItem(`acta_draft_${id}`); }catch{}
+
+    // Si la acta borrada estaba abierta, cerramos el formulario.
+    if (currentMeetingId === id){
+      currentMeetingId = null;
+      currentMeeting = null;
+      dirty = false;
+      meetingIdTag?.classList.add("hidden");
+      renderAll();
+    }
+
+    await listMeetings();
+    showToast("Acta borrada ✅");
+  }catch(e){
+    console.error(e);
+    showToast("No se pudo borrar la acta");
+    setPill("error");
+  }
+}
+
 async function createMeeting(){
   // Si hay cambios sin guardar, los empujamos antes de crear otra
   if (dirty && currentMeetingId && currentMeeting){
@@ -620,7 +686,18 @@ function renderMeetingList(items){
   }
   emptyList && emptyList.classList.add("hidden");
 
-  items.forEach(m => {
+  // Ordenar SIEMPRE por fecha del acta (más reciente primero).
+  // Las que no tengan fecha quedan al final.
+  const sorted = [...items].sort((a, b) => {
+    const da = (a.dateISO || "");
+    const db = (b.dateISO || "");
+    if (!da && !db) return 0;
+    if (!da) return 1;
+    if (!db) return -1;
+    return db.localeCompare(da); // descendente: 2026-06 antes que 2026-05
+  });
+
+  sorted.forEach(m => {
     const el = document.createElement("div");
     el.className = "item";
 
@@ -631,7 +708,10 @@ function renderMeetingList(items){
     el.innerHTML = `
       <div class="row1">
         <div class="name">${escapeHtml(m.employeeName || "—")}</div>
-        <div class="date">${escapeHtml(m.dateISO || "—")}</div>
+        <div class="row1Right">
+          <div class="date">${escapeHtml(m.dateISO || "—")}</div>
+          <button type="button" class="btnDeleteItem" title="Borrar acta" aria-label="Borrar acta">🗑</button>
+        </div>
       </div>
       <div class="row2">
         <div class="metaSmall">${escapeHtml(m.role || "")}</div>
@@ -640,6 +720,16 @@ function renderMeetingList(items){
     `;
 
     el.onclick = () => openMeeting(m.id);
+
+    const btnDel = el.querySelector(".btnDeleteItem");
+    if (btnDel){
+      btnDel.onclick = (ev) => {
+        ev.stopPropagation(); // que no abra la acta al borrar
+        const label = (m.employeeName || "").trim() || `acta del ${m.dateISO || "—"}`;
+        deleteMeeting(m.id, label);
+      };
+    }
+
     meetingList.appendChild(el);
   });
 }
@@ -1256,7 +1346,18 @@ function bindForm(){
   if (fDate) {
     fDate.oninput = () => {
       if (!currentMeeting) return;
+      const prevAuto = prevMonthLabel(currentMeeting.dateISO);
       currentMeeting.dateISO = fDate.value || isoToday();
+
+      // Autocompleta el período con el mes anterior a la fecha,
+      // salvo que el usuario ya haya escrito un período propio.
+      const auto = prevMonthLabel(currentMeeting.dateISO);
+      const current = (currentMeeting.periodLabel || "").trim();
+      if (auto && (current === "" || current === prevAuto)) {
+        currentMeeting.periodLabel = auto;
+        if (fPeriod) fPeriod.value = auto;
+      }
+
       debounceSave();
       renderActionsAndPrompt();
     };
@@ -1425,9 +1526,18 @@ window.addEventListener("online", () => {
 window.addEventListener("offline", () => setPill("offline"));
 
 /* =============================
-   INIT
+   AUTH
 ============================= */
-(async function init(){
+const isAllowedEmail = (email) =>
+  !!email && ALLOWED_EMAILS.includes(email.toLowerCase());
+
+let appBootstrapped = false;
+
+// Arranca la app real (solo una vez, tras un login válido).
+async function bootstrapApp(){
+  if (appBootstrapped) return;
+  appBootstrapped = true;
+
   setPill("idle");
 
   bindForm();
@@ -1435,12 +1545,88 @@ window.addEventListener("offline", () => setPill("offline"));
   wireSearch();
 
   // Estado inicial: sin reunión abierta.
-  // No mostramos campos editables si no hay un documento guardable abierto.
   currentMeetingId = null;
   currentMeeting = null;
   renderAll();
   btnCopyPrompt && (btnCopyPrompt.disabled = true);
 
   await listMeetings();
+}
+
+function showAuthGate(){
+  authGate?.classList.remove("hidden");
+  userChip?.classList.add("hidden");
+  btnLogout?.classList.add("hidden");
+}
+
+function hideAuthGate(){
+  authGate?.classList.add("hidden");
+}
+
+function showAuthError(msg){
+  if (!authError) return;
+  authError.textContent = msg;
+  authError.classList.remove("hidden");
+}
+
+function clearAuthError(){
+  authError?.classList.add("hidden");
+}
+
+function wireAuth(){
+  if (btnGoogleLogin){
+    btnGoogleLogin.onclick = async () => {
+      clearAuthError();
+      btnGoogleLogin.disabled = true;
+      try{
+        await signInWithPopup(auth, googleProvider);
+        // El resultado lo maneja onAuthStateChanged.
+      }catch(e){
+        console.error(e);
+        if (e?.code !== "auth/popup-closed-by-user" &&
+            e?.code !== "auth/cancelled-popup-request"){
+          showAuthError("No se pudo iniciar sesión. Intenta de nuevo.");
+        }
+      }finally{
+        btnGoogleLogin.disabled = false;
+      }
+    };
+  }
+
+  if (btnLogout){
+    btnLogout.onclick = async () => {
+      try{ await signOut(auth); }
+      catch(e){ console.error(e); }
+    };
+  }
+
+  onAuthStateChanged(auth, async (user) => {
+    if (user && isAllowedEmail(user.email)){
+      clearAuthError();
+      hideAuthGate();
+      if (userChip){
+        userChip.textContent = user.email;
+        userChip.classList.remove("hidden");
+      }
+      btnLogout?.classList.remove("hidden");
+      await bootstrapApp();
+    } else if (user){
+      // Sesión iniciada pero correo NO autorizado.
+      const intento = user.email || "";
+      await signOut(auth);
+      showAuthGate();
+      showAuthError(`El correo ${intento} no está autorizado para usar esta app.`);
+    } else {
+      // Sin sesión.
+      showAuthGate();
+    }
+  });
+}
+
+/* =============================
+   INIT
+============================= */
+(function init(){
+  wireAuth();
 })();
 
