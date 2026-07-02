@@ -152,6 +152,45 @@ const TEMPLATES = {
 };
 
 // Migración de títulos viejos -> nuevos (para sectionConfig guardado en docs antiguos)
+const BASE_SECTION_TEXTS = {
+  admin: {
+    agradecimiento: "Durante el periodo se reconoce la disposición para el desarrollo de las funciones asignadas y la continuidad de los procesos propios del cargo.",
+    retroEstudiantes: "Durante el periodo no se registraron novedades relevantes en las retroalimentaciones recibidas por parte de estudiantes o usuarios. Se continuará haciendo seguimiento a la calidad del servicio y la atención brindada.",
+    retroAdmin: "En el seguimiento administrativo del periodo no se identificaron novedades relevantes. Se mantiene la recomendación de continuar fortaleciendo la coordinación, la comunicación interna y el cumplimiento oportuno de los procesos.",
+    distintivos: "Durante el periodo se dio cumplimiento general a los protocolos institucionales y al uso de los distintivos requeridos para el desarrollo de las actividades.",
+    puntualidad: "Durante el periodo se mantuvo el seguimiento habitual a la puntualidad y al registro de las jornadas, sin novedades relevantes que requieran un acuerdo adicional.",
+    bitacora: "La bitácora y las tareas del cargo se mantuvieron como herramientas de seguimiento y trazabilidad. Se recomienda continuar registrando oportunamente los avances, pendientes y novedades de cada proceso.",
+    comunicacion: "La comunicación y la atención asociadas al cargo se desarrollaron de manera adecuada durante el periodo. Se invita a mantener mensajes claros, oportunos y acordes con los canales institucionales.",
+    funcionesCargo: "Se revisaron las funciones y responsabilidades del cargo, sin identificarse cambios relevantes para el periodo. Se continuará dando cumplimiento a las tareas habituales y realizando seguimiento a las prioridades definidas.",
+    kpis: "Se revisaron los indicadores disponibles del periodo como parte del seguimiento habitual. No se registraron novedades adicionales y se continuará observando su evolución en el siguiente ciclo.",
+    bloqueos: "No se reportaron bloqueos, riesgos o dificultades relevantes que impidieran el cumplimiento general de las funciones durante el periodo.",
+    apoyosMusicala: "No se identificaron apoyos institucionales adicionales para este periodo. Musicala continuará brindando el acompañamiento habitual requerido para el desarrollo del cargo.",
+    proyeccion: "Para el siguiente periodo se proyecta dar continuidad a las funciones del cargo, atender las prioridades definidas y mantener seguimiento a los procesos en curso.",
+    palabrasTrabajador: "La persona trabajadora manifestó comprensión frente a los temas revisados y no presentó observaciones adicionales para dejar registradas en esta sección.",
+    mejorasCargo: "No se identificaron puntos críticos de mejora durante el periodo. Se recomienda mantener las prácticas que vienen funcionando y continuar fortaleciendo la organización, la comunicación y el seguimiento de las responsabilidades.",
+    bienestar: "No se reportaron novedades de bienestar que requirieran una acción específica durante el periodo. Se mantiene abierto el espacio institucional para comunicar oportunamente cualquier situación que necesite acompañamiento.",
+    cierre: "Las partes manifestaron comprensión de los temas revisados. Se acuerda dar continuidad a las responsabilidades habituales y realizar seguimiento en la próxima reunión periódica."
+  },
+  docente: {
+    agradecimiento: "Durante el periodo se reconoce la disposición del docente y la continuidad de su labor pedagógica con los grupos y estudiantes asignados.",
+    registroClases: "Los registros de clase se mantuvieron como parte del seguimiento habitual del proceso. Se recomienda continuar realizándolos de manera completa y oportuna.",
+    planeacion: "La planeación y la bitácora pedagógica se desarrollaron como herramientas de organización y trazabilidad. Se invita a mantener actualizados los objetivos, actividades, avances y novedades de cada grupo.",
+    manejoGrupo: "Durante el periodo se dio continuidad al manejo habitual de los grupos, sin registrarse novedades relevantes que requieran un acuerdo adicional.",
+    relacionEstudiantes: "La relación con estudiantes, líderes y acudientes se mantuvo dentro de los canales institucionales. Se recomienda continuar promoviendo una comunicación clara, respetuosa y oportuna.",
+    muestrasProceso: "Se continuará promoviendo el registro y la presentación de muestras de proceso que permitan evidenciar los avances de los estudiantes y grupos.",
+    avancesPedagogicos: "Se observaron avances acordes con la continuidad de los procesos pedagógicos. Se recomienda mantener el seguimiento individual y grupal durante el siguiente periodo.",
+    apoyoInstitucional: "No se identificaron necesidades adicionales de apoyo institucional durante el periodo. Musicala continuará brindando el acompañamiento habitual para el desarrollo del proceso pedagógico.",
+    puntualidad: "Durante el periodo se mantuvo el seguimiento habitual a la puntualidad y al registro de las jornadas, sin novedades relevantes que requieran un acuerdo adicional.",
+    proyeccion: "Para el siguiente periodo se proyecta dar continuidad a la planeación, fortalecer los procesos en curso y realizar seguimiento a los avances de cada grupo.",
+    palabrasDocente: "El docente manifestó comprensión frente a los temas revisados y no presentó observaciones adicionales para dejar registradas en esta sección.",
+    bienestar: "No se reportaron novedades de bienestar que requirieran una acción específica durante el periodo. Se mantiene abierto el espacio institucional para comunicar oportunamente cualquier situación que necesite acompañamiento."
+  }
+};
+
+function getBaseSectionText(templateKey, sectionKey){
+  return BASE_SECTION_TEXTS[templateKey]?.[sectionKey] || "";
+}
+
 const TITLE_MIGRATION = {
   "agradecimiento": "Reconocimiento de avances y aspectos positivos del periodo",
   "distintivos": "Cumplimiento de protocolos y distintivos",
@@ -1417,6 +1456,44 @@ function renderSections(){
       renderActionsAndPrompt();
     };
     ta.onblur = () => saveNow({ reason: "Notas guardadas", silentOk: true });
+
+    const baseText = getBaseSectionText(getTemplate(), def.key);
+    if (baseText){
+      const baseBox = document.createElement("div");
+      baseBox.className = "baseTextBox";
+      const baseCopy = document.createElement("div");
+      baseCopy.className = "baseTextCopy";
+      const baseLabel = document.createElement("div");
+      baseLabel.className = "baseTextLabel";
+      baseLabel.textContent = "Texto base sugerido";
+      const basePreview = document.createElement("div");
+      basePreview.className = "baseTextPreview";
+      basePreview.textContent = baseText;
+      const useBaseBtn = document.createElement("button");
+      useBaseBtn.type = "button";
+      useBaseBtn.className = "btn small baseTextButton";
+      useBaseBtn.textContent = "Usar texto base";
+      useBaseBtn.onclick = () => {
+        if (safeTrim(ta.value) && ta.value !== baseText){
+          const replace = window.confirm("Esta sección ya tiene notas. ¿Quieres reemplazarlas por el texto base?");
+          if (!replace) return;
+        }
+        ta.value = baseText;
+        sec.notes = baseText;
+        if (statusIsNoRevisado(sec.status) || statusIsNoAplica(sec.status)){
+          sec.status = "🟢 Bien / Sostenido";
+          sel.value = sec.status;
+        }
+        updateSectionWarning(card, def.key);
+        debounceSave();
+        renderActionsAndPrompt();
+        showToast("Texto base aplicado. Puedes editarlo si lo necesitas.");
+        ta.focus();
+      };
+      baseCopy.append(baseLabel, basePreview);
+      baseBox.append(baseCopy, useBaseBtn);
+      body.appendChild(baseBox);
+    }
 
     // Acuerdos por sección
     const actionsWrap = document.createElement("div");

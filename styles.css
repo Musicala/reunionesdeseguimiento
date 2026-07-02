@@ -408,6 +408,36 @@ body{
 .sectionBody[data-open="0"]{ display: none; }
 
 /* acuerdos por sección */
+.baseTextBox{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(12,65,196,.14);
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(12,65,196,.055), rgba(91,61,246,.035));
+}
+.baseTextCopy{ min-width: 0; }
+.baseTextLabel{
+  margin-bottom: 4px;
+  color: rgba(12,65,196,.86);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: .2px;
+}
+.baseTextPreview{
+  color: rgba(11,16,32,.72);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.baseTextButton{
+  flex: 0 0 auto;
+  white-space: nowrap;
+  border-color: rgba(12,65,196,.25);
+  background: rgba(255,255,255,.82);
+}
+
 .secActions{
   border: 1px dashed rgba(30,36,60,.16);
   border-radius: 16px;
@@ -668,6 +698,11 @@ body{
 }
 
 @media (max-width: 720px){
+  .baseTextBox{
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .baseTextButton{ width: 100%; }
   .configAddBox{
     grid-template-columns: 1fr;
   }
