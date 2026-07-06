@@ -1,0 +1,83 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function hasOnlyMeetingKeys(data) {
+      return data.keys().hasOnly([
+        'status',
+        'template',
+        'dateISO',
+        'periodLabel',
+        'employeeName',
+        'employeeKey',
+        'role',
+        'area',
+        'attendees',
+        'attendeesText',
+        'place',
+        'meetingKind',
+        'objective',
+        'meetingFrame',
+        'previousActionsReview',
+        'sectionConfig',
+        'sections',
+        'actionItems',
+        'createdBy',
+        'updatedBy',
+        'finalizedAt',
+        'finalizedBy',
+        'createdAt',
+        'updatedAt'
+      ]);
+    }
+
+    function isValidMeeting(data) {
+      return hasOnlyMeetingKeys(data)
+        && (!('status' in data) || data.status in ['draft', 'final'])
+        && (!('template' in data) || data.template in ['admin', 'docente'])
+        && (!('dateISO' in data) || data.dateISO is string)
+        && (!('periodLabel' in data) || data.periodLabel is string)
+        && (!('employeeName' in data) || data.employeeName is string)
+        && (!('employeeKey' in data) || data.employeeKey is string)
+        && (!('role' in data) || data.role is string)
+        && (!('area' in data) || data.area is string)
+        && (!('attendeesText' in data) || data.attendeesText is string)
+        && (!('place' in data) || data.place is string)
+        && (!('meetingKind' in data) || data.meetingKind is string)
+        && (!('objective' in data) || data.objective is string)
+        && (!('meetingFrame' in data) || data.meetingFrame is string)
+        && (!('previousActionsReview' in data) || data.previousActionsReview is list)
+        && (!('attendees' in data) || data.attendees is list)
+        && (!('sectionConfig' in data) || data.sectionConfig is list)
+        && (!('sections' in data) || data.sections is map)
+        && (!('actionItems' in data) || data.actionItems is list)
+        && (!('createdBy' in data) || data.createdBy is string)
+        && (!('updatedBy' in data) || data.updatedBy is string)
+        && (!('finalizedAt' in data) || data.finalizedAt is string)
+        && (!('finalizedBy' in data) || data.finalizedBy is string)
+        && (!('createdAt' in data) || data.createdAt is timestamp || data.createdAt == request.time)
+        && (!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt == request.time);
+    }
+
+    function isAllowedUser() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower() in [
+          'alekcaballeromusic@gmail.com',
+          'catalina.medina.leal@gmail.com'
+        ];
+    }
+
+    match /meetings/{meetingId} {
+      allow read: if isAllowedUser();
+      allow create: if isAllowedUser() && isValidMeeting(request.resource.data);
+      allow update: if isAllowedUser()
+        && isValidMeeting(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isAllowedUser();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -312,8 +312,9 @@ export function buildPrompt(meeting){
     "",
     "REGLAS CRÍTICAS (OBLIGATORIAS):",
     "- NO inventes información ni agregues hechos, fechas, cifras, nombres o situaciones que no estén registradas.",
-    "- Si un dato aplicable no está registrado, escribe exactamente: 'No se registró información'. (Sin sinónimos.)",
-    "- Incluye todas las secciones que tengan contenido. Omite únicamente las secciones realmente vacías (sin notas ni acuerdos).",
+    "- Si un dato no está registrado, SIMPLEMENTE OMITE ese punto. NO escribas frases de relleno como 'No se registró información', 'No aplica', 'No revisado', 'Sin información', 'No hay datos' ni '—'.",
+    "- El insumo de abajo usa 'No se registró información' o '—' para marcar campos vacíos. Trátalos como AUSENCIA de dato: no los copies al acta; simplemente no menciones ese punto.",
+    "- Incluye todas las secciones que tengan contenido. Omite por completo las secciones realmente vacías (sin notas ni acuerdos): no las listes ni con un título.",
     "- No conviertas una reunión de seguimiento en una sanción disciplinaria si eso no fue expresamente registrado.",
     "- No emitas diagnósticos personales, psicológicos ni juicios de carácter sobre el trabajador.",
     "",
@@ -323,12 +324,13 @@ export function buildPrompt(meeting){
     "- Mantén fielmente el sentido de lo escrito, pero conviértelo en redacción institucional formal.",
     "- Puedes ampliar para dar claridad, siempre que NO agregues hechos nuevos.",
     "",
-    "SEPARACIÓN OBLIGATORIA EN CADA SECCIÓN APLICABLE:",
+    "SEPARACIÓN EN CADA SECCIÓN (INCLUIR SOLO LOS SUB-PUNTOS CON CONTENIDO; OMITIR LOS DEMÁS):",
     "- Hechos observados (lo que se registró objetivamente).",
-    "- Versión / percepción del trabajador (si fue registrada; si no: 'No se registró información').",
+    "- Versión / percepción del trabajador (solo si fue registrada; si no, omite este sub-punto).",
     "- Lectura institucional (interpretación de Musicala, sin juicios personales).",
     "- Acuerdos derivados (qué se definió hacer).",
     "- Apoyos de Musicala (qué se compromete la institución, si aplica).",
+    "- No fuerces los cinco sub-puntos: si una sección solo tiene hechos y un acuerdo, redacta solo eso.",
     "",
     "FORMATO Y ESTILO:",
     "- Español neutro-formal, fácil de leer. Evita muletillas y repeticiones. Tono institucional humano, sin regaños ni dramatismo.",
@@ -383,6 +385,6 @@ export function buildPrompt(meeting){
     actionsTable,
     "",
     "REDACTA AHORA el ACTA COMPLETA siguiendo la ESTRUCTURA OBLIGATORIA.",
-    "Recuerda: reescribe con otras palabras TODO lo escrito, separa hechos/versión/lectura institucional/acuerdos/apoyos, incluye lo que tenga contenido, omite lo realmente vacío y NO inventes. Si falta algo aplicable: 'No se registró información'."
+    "Recuerda: reescribe con otras palabras TODO lo escrito, separa hechos/versión/lectura institucional/acuerdos/apoyos, incluye SOLO lo que tenga contenido y omite lo vacío (sin frases de relleno ni '—') y NO inventes. Excepción: en la TABLA de acuerdos, si una celda no tiene dato déjala con '—' para no romper el formato; el resto del acta va sin rellenos."
   ].join("\n");
 }

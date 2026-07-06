@@ -698,11 +698,6 @@ body{
 }
 
 @media (max-width: 720px){
-  .baseTextBox{
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .baseTextButton{ width: 100%; }
   .configAddBox{
     grid-template-columns: 1fr;
   }
@@ -885,4 +880,11 @@ body{
 @media (max-width: 520px){
   .actionGrid.g3, .actionGrid.g4{ grid-template-columns: 1fr; }
   .filterRow{ flex-direction: column; }
+}
+@media (max-width: 720px){
+  .baseTextBox{
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .baseTextButton{ width: 100%; }
 }
