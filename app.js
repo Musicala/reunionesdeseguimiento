@@ -849,6 +849,7 @@ function makeBaseMeeting(template = "admin"){
     employeeKey: "",
     role: "",
     coordinator: "",
+    coordinators: [],
     area: "administrativa",
     attendees: [],
     attendeesText: "",
@@ -884,6 +885,9 @@ function normalizeMeeting(m){
   out.place = (out.place ?? "").toString();
   out.role = (out.role ?? "").toString();
   out.coordinator = (out.coordinator ?? "").toString();
+  out.coordinators = normalizeList(Array.isArray(out.coordinators) ? out.coordinators : parseAttendees(out.coordinator));
+  if (!out.coordinator && out.coordinators.length) out.coordinator = out.coordinators.join(", ");
+  if (out.coordinator && !out.coordinators.length) out.coordinators = normalizeList(parseAttendees(out.coordinator));
 
   // Campos nuevos con defaults seguros
   out.meetingKind = MEETING_KINDS.includes(safeTrim(out.meetingKind)) ? safeTrim(out.meetingKind) : (safeTrim(out.meetingKind) || "");
@@ -1904,6 +1908,8 @@ async function duplicateMeeting(){
     template: getTemplate(),
     employeeName: currentMeeting.employeeName,
     role: currentMeeting.role,
+    coordinator: currentMeeting.coordinator,
+    coordinators: currentMeeting.coordinators,
     area: currentMeeting.area,
     place: currentMeeting.place,
     attendeesText: currentMeeting.attendeesText,
@@ -2130,10 +2136,35 @@ function fillSelect(sel, options, currentValue){
   sel.value = val;
 }
 
+function fillMultiSelect(sel, options, currentValues){
+  if (!sel) return;
+  const selected = normalizeList(currentValues);
+  const all = normalizeList([...options, ...selected]);
+  sel.innerHTML = "";
+  all.forEach(o => {
+    const op = document.createElement("option");
+    op.value = o; op.textContent = o;
+    op.selected = selected.some(v => v.toLowerCase() === o.toLowerCase());
+    sel.appendChild(op);
+  });
+}
+
+function selectedValues(sel){
+  return Array.from(sel?.selectedOptions || [])
+    .map(option => option.value)
+    .filter(Boolean);
+}
+
+function syncMeetingCoordinators(values){
+  if (!currentMeeting) return;
+  currentMeeting.coordinators = normalizeList(values);
+  currentMeeting.coordinator = currentMeeting.coordinators.join(", ");
+}
+
 function populatePeopleSelects(){
   fillSelect(fEmployeeName, appConfig.workers, currentMeeting?.employeeName);
   fillSelect(fRole, appConfig.roles, currentMeeting?.role);
-  fillSelect(fCoordinator, appConfig.coordinators, currentMeeting?.coordinator);
+  fillMultiSelect(fCoordinator, appConfig.coordinators, currentMeeting?.coordinators || parseAttendees(currentMeeting?.coordinator));
 }
 
 // Busca el periodo de la última acta de un trabajador y devuelve el mes siguiente.
@@ -2334,7 +2365,7 @@ function bindForm(){
   if (fCoordinator){
     fCoordinator.onchange = () => {
       if (!currentMeeting) return;
-      currentMeeting.coordinator = fCoordinator.value;
+      syncMeetingCoordinators(selectedValues(fCoordinator));
       renderActionsAndPrompt();
       saveNow({ silentOk: true });
     };
