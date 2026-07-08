@@ -75,6 +75,8 @@ function migrateActionStatus(raw){
 
 // Estados de seguimiento para acuerdos de reuniones anteriores
 const FOLLOW_STATUS = ["Pendiente de revisar", "Cumplido", "En proceso", "No cumplido", "Reprogramado", "Ya no aplica"];
+// Estados de seguimiento que dan por resuelto el compromiso (no se arrastra a la siguiente acta)
+const FOLLOW_DONE_STATES = ["Cumplido", "Ya no aplica"];
 
 /* =====================================================================
    TIPOS DE REUNIÓN
@@ -1100,14 +1102,33 @@ function seedPreviousActionsReview(){
     .filter(m => safeTrim(m.dateISO) <= myDate) // anteriores o mismas fechas
     .sort((a, b) => safeTrim(b.dateISO).localeCompare(safeTrim(a.dateISO)));
 
+  // Mapa del último seguimiento dado a cada compromiso (por título) en actas anteriores.
+  // Si en algún acta posterior se marcó "Cumplido" / "Ya no aplica", no se vuelve a arrastrar.
+  const resolvedByTitle = new Map();
+  prior.forEach(m => {
+    const reviews = Array.isArray(m.previousActionsReview) ? m.previousActionsReview : [];
+    const reviewDate = safeTrim(m.dateISO);
+    reviews.forEach(r => {
+      const tkey = safeTrim(r?.originalTitle).toLowerCase();
+      if (!tkey) return;
+      const prevEntry = resolvedByTitle.get(tkey);
+      if (!prevEntry || reviewDate >= prevEntry.date){
+        resolvedByTitle.set(tkey, { date: reviewDate, followStatus: safeTrim(r?.followStatus) });
+      }
+    });
+  });
+
   const seeded = [];
   prior.forEach(m => {
     const items = Array.isArray(m.actionItems) ? m.actionItems : [];
     items.forEach(a => {
       const st = migrateActionStatus(a?.status);
-      if (ACTION_DONE_STATES.includes(st)) return; // solo pendientes/no resueltos
+      if (ACTION_DONE_STATES.includes(st)) return; // ya cerrado en el acta original
       const title = safeTrim(a?.title);
       if (!title) return;
+      // Si el compromiso ya quedó resuelto en el seguimiento de un acta posterior, no arrastrarlo.
+      const resolved = resolvedByTitle.get(title.toLowerCase());
+      if (resolved && FOLLOW_DONE_STATES.includes(resolved.followStatus)) return;
       seeded.push(normalizePrevReview({
         sourceMeetingId: m.id,
         sourceDate: safeTrim(m.dateISO),
@@ -1120,10 +1141,11 @@ function seedPreviousActionsReview(){
     });
   });
 
-  // Evitar duplicados por título+fecha
+  // Evitar duplicados del mismo compromiso: se conserva solo la aparición más reciente
+  // (prior ya viene ordenado de más nuevo a más antiguo).
   const seen = new Set();
   currentMeeting.previousActionsReview = seeded.filter(r => {
-    const k = `${r.sourceDate}::${r.originalTitle.toLowerCase()}`;
+    const k = r.originalTitle.toLowerCase();
     if (seen.has(k)) return false;
     seen.add(k); return true;
   }).slice(0, 40);
