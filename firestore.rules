@@ -10,6 +10,7 @@ service cloud.firestore {
         'employeeName',
         'employeeKey',
         'role',
+        'coordinator',
         'area',
         'attendees',
         'attendeesText',
@@ -39,6 +40,7 @@ service cloud.firestore {
         && (!('employeeName' in data) || data.employeeName is string)
         && (!('employeeKey' in data) || data.employeeKey is string)
         && (!('role' in data) || data.role is string)
+        && (!('coordinator' in data) || data.coordinator is string)
         && (!('area' in data) || data.area is string)
         && (!('attendeesText' in data) || data.attendeesText is string)
         && (!('place' in data) || data.place is string)
@@ -74,6 +76,11 @@ service cloud.firestore {
         && isValidMeeting(request.resource.data)
         && request.resource.data.createdAt == resource.data.createdAt;
       allow delete: if isAllowedUser();
+    }
+
+    match /config/{docId} {
+      allow read: if isAllowedUser();
+      allow write: if isAllowedUser();
     }
 
     match /{document=**} {

@@ -141,6 +141,7 @@ export function buildPrompt(meeting){
   const period    = safeOneLine(m.periodLabel || m.period || m.periodo);
   const employee  = safeOneLine(m.employeeName || m.workerName || m.trabajador || m.nombreTrabajador);
   const role      = safeOneLine(m.role || m.cargo);
+  const coordinator = safeOneLine(m.coordinator || m.coordinador);
   const area      = normalizeArea(m.area) || template.areaDefault;
   const place     = safeOneLine(m.place || m.modalidad || m.lugar);
   const meetingKind = safeOneLine(m.meetingKind) || "No se registró información";
@@ -343,6 +344,7 @@ export function buildPrompt(meeting){
     `Periodo evaluado: ${period || "—"}`,
     `Trabajador: ${employee || "—"}`,
     `Cargo: ${role || "—"}`,
+    `Coordinador: ${coordinator || "—"}`,
     `Área: ${area || "—"}`,
     `Lugar/Modalidad: ${place || "—"}`,
     `Asistentes: ${attendees || "—"}`,

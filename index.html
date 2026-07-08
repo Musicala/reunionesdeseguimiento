@@ -69,6 +69,10 @@
         + Nueva reunión
       </button>
 
+      <button id="btnConfigLists" class="btn" type="button">
+        Configurar listas
+      </button>
+
       <button id="btnCopyPrompt" class="btn" type="button" disabled>
         Copiar prompt
       </button>
@@ -177,12 +181,24 @@
 
           <label class="field">
             <span class="label">Trabajador</span>
-            <input id="fEmployeeName" class="input" placeholder="Nombre completo" />
+            <select id="fEmployeeName" class="input">
+              <option value="">Selecciona…</option>
+            </select>
+            <span class="hint">Se administra en “Configurar listas”.</span>
           </label>
 
           <label class="field">
             <span class="label">Cargo</span>
-            <input id="fRole" class="input" placeholder="Ej: Coordinador académico" />
+            <select id="fRole" class="input">
+              <option value="">Selecciona…</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span class="label">Coordinador</span>
+            <select id="fCoordinator" class="input">
+              <option value="">Selecciona…</option>
+            </select>
           </label>
 
           <label class="field">

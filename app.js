@@ -4,7 +4,7 @@ console.log("APP JS CARGÓ ✅ (v4 — herramienta de conducción de reuniones)"
 
 // Firestore
 import {
-  collection, addDoc, doc, getDoc, updateDoc, deleteDoc,
+  collection, addDoc, doc, getDoc, setDoc, updateDoc, deleteDoc,
   query, orderBy, limit, getDocs, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
@@ -568,6 +568,7 @@ let dirty = false;
 let lastMeetingList = [];
 let lastSaveError = null;
 let currentUserEmail = "";
+let appConfig = { workers: [], roles: [], coordinators: [] };
 
 /* =====================================================================
    DOM
@@ -588,6 +589,7 @@ const fDate = $("fDate");
 const fPeriod = $("fPeriod");
 const fEmployeeName = $("fEmployeeName");
 const fRole = $("fRole");
+const fCoordinator = $("fCoordinator");
 const fArea = $("fArea");
 const fAttendees = $("fAttendees");
 const fTemplate = $("fTemplate");
@@ -602,6 +604,7 @@ const appModeLabel = $("appModeLabel");
 // Buttons
 const btnNew = $("btnNew");
 const btnNewEmpty = $("btnNewEmpty");
+const btnConfigLists = $("btnConfigLists");
 const btnCopyPrompt = $("btnCopyPrompt");
 const btnFinalize = $("btnFinalize");
 const btnUnfinalize = $("btnUnfinalize");
@@ -657,6 +660,22 @@ function prevMonthLabel(iso){
   if (!y || !m) return "";
   const d = new Date(y, m - 1, 1);
   d.setMonth(d.getMonth() - 1);
+  return `${MESES_ES[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+// Reverse map: "julio" -> 6 (0-based)
+const MES_INDEX = MESES_ES.reduce((acc, name, i) => { acc[name.toLowerCase()] = i; return acc; }, {});
+
+// Recibe un periodo tipo "Junio 2026" y devuelve el mes siguiente "Julio 2026".
+function nextMonthLabelFromLabel(label){
+  const s = safeTrim(label).toLowerCase();
+  const match = s.match(/([a-záéíóú]+)\s+(\d{4})/i);
+  if (!match) return "";
+  const mi = MES_INDEX[match[1]];
+  const year = Number(match[2]);
+  if (mi === undefined || !year) return "";
+  const d = new Date(year, mi, 1);
+  d.setMonth(d.getMonth() + 1);
   return `${MESES_ES[d.getMonth()]} ${d.getFullYear()}`;
 }
 
@@ -829,6 +848,7 @@ function makeBaseMeeting(template = "admin"){
     employeeName: "",
     employeeKey: "",
     role: "",
+    coordinator: "",
     area: "administrativa",
     attendees: [],
     attendeesText: "",
@@ -862,6 +882,8 @@ function normalizeMeeting(m){
 
   out.dateISO = safeTrim(out.dateISO) || isoToday();
   out.place = (out.place ?? "").toString();
+  out.role = (out.role ?? "").toString();
+  out.coordinator = (out.coordinator ?? "").toString();
 
   // Campos nuevos con defaults seguros
   out.meetingKind = MEETING_KINDS.includes(safeTrim(out.meetingKind)) ? safeTrim(out.meetingKind) : (safeTrim(out.meetingKind) || "");
@@ -1044,8 +1066,8 @@ async function createMeeting(presetOverrides = null){
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
+    await listMeetings(); // refresca antes de abrir para que la siembra vea lo último guardado
     await openMeeting(ref.id);
-    await listMeetings();
     showToast("Reunión creada ✅");
   }catch(e){
     console.error(e);
@@ -1292,8 +1314,7 @@ function renderAll(){
 
   fDate && (fDate.value = currentMeeting.dateISO);
   fPeriod && (fPeriod.value = currentMeeting.periodLabel);
-  fEmployeeName && (fEmployeeName.value = currentMeeting.employeeName);
-  fRole && (fRole.value = currentMeeting.role);
+  populatePeopleSelects(); // Trabajador, Cargo y Coordinador (selects)
   fArea && (fArea.value = currentMeeting.area);
   fAttendees && (fAttendees.value = currentMeeting.attendeesText);
   fTemplate && (fTemplate.value = getTemplate());
@@ -2045,6 +2066,215 @@ function openSectionsConfigModal(){
 }
 
 /* =====================================================================
+   CONFIGURACIÓN DE LISTAS (trabajadores, cargos, coordinadores)
+===================================================================== */
+const CONFIG_DOC_ID = "app";
+
+function normalizeList(arr){
+  const seen = new Set();
+  return (Array.isArray(arr) ? arr : [])
+    .map(v => safeTrim(v))
+    .filter(v => {
+      if (!v) return false;
+      const k = v.toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k); return true;
+    })
+    .sort((a, b) => a.localeCompare(b, "es"));
+}
+
+async function loadAppConfig(){
+  try{
+    const snap = await getDoc(doc(db, "config", CONFIG_DOC_ID));
+    const d = snap.exists() ? snap.data() : {};
+    appConfig = {
+      workers: normalizeList(d.workers),
+      roles: normalizeList(d.roles),
+      coordinators: normalizeList(d.coordinators)
+    };
+  }catch(e){
+    console.error("No se pudo cargar la configuración", e);
+    appConfig = { workers: [], roles: [], coordinators: [] };
+  }
+  populatePeopleSelects();
+}
+
+async function saveAppConfig(){
+  await setDoc(doc(db, "config", CONFIG_DOC_ID), {
+    workers: appConfig.workers,
+    roles: appConfig.roles,
+    coordinators: appConfig.coordinators,
+    updatedBy: currentUserEmail || "",
+    updatedAt: serverTimestamp()
+  });
+}
+
+// Rellena un <select> con las opciones dadas, conservando el valor actual
+// (aunque no esté en la lista, para no perder datos de actas anteriores).
+function fillSelect(sel, options, currentValue){
+  if (!sel) return;
+  const val = safeTrim(currentValue);
+  sel.innerHTML = "";
+  const ph = document.createElement("option");
+  ph.value = ""; ph.textContent = "Selecciona…";
+  sel.appendChild(ph);
+
+  const all = options.slice();
+  if (val && !all.some(o => o.toLowerCase() === val.toLowerCase())) all.push(val);
+
+  all.forEach(o => {
+    const op = document.createElement("option");
+    op.value = o; op.textContent = o;
+    sel.appendChild(op);
+  });
+  sel.value = val;
+}
+
+function populatePeopleSelects(){
+  fillSelect(fEmployeeName, appConfig.workers, currentMeeting?.employeeName);
+  fillSelect(fRole, appConfig.roles, currentMeeting?.role);
+  fillSelect(fCoordinator, appConfig.coordinators, currentMeeting?.coordinator);
+}
+
+// Busca el periodo de la última acta de un trabajador y devuelve el mes siguiente.
+function suggestedPeriodForWorker(name){
+  const key = normEmployeeKey(name);
+  if (!key) return "";
+  const prior = (lastMeetingList || [])
+    .filter(m => m.id !== currentMeetingId)
+    .filter(m => normEmployeeKey(m.employeeName) === key)
+    .sort((a, b) => safeTrim(b.dateISO).localeCompare(safeTrim(a.dateISO)));
+  for (const m of prior){
+    const next = nextMonthLabelFromLabel(m.periodLabel);
+    if (next) return next;
+  }
+  return "";
+}
+
+/* ---- Modal de configuración de listas ---- */
+function openConfigListsModal(){
+  const backdrop = document.createElement("div");
+  backdrop.className = "modalBackdrop";
+  backdrop.setAttribute("role", "dialog");
+  backdrop.setAttribute("aria-modal", "true");
+
+  const modal = document.createElement("div");
+  modal.className = "modalPanel sectionConfigPanel";
+
+  const title = document.createElement("div");
+  title.className = "modalTitle";
+  title.textContent = "Configurar listas";
+
+  const desc = document.createElement("p");
+  desc.className = "muted tiny";
+  desc.textContent = "Agrega o quita trabajadores, cargos y coordinadores. Se comparten para todas las actas.";
+
+  // Estado editable local (se aplica al guardar)
+  const draft = {
+    workers: appConfig.workers.slice(),
+    roles: appConfig.roles.slice(),
+    coordinators: appConfig.coordinators.slice()
+  };
+
+  const listsWrap = document.createElement("div");
+  listsWrap.className = "configListsWrap";
+
+  function buildGroup(label, key){
+    const box = document.createElement("div");
+    box.className = "configGroup";
+
+    const h = document.createElement("div");
+    h.className = "label"; h.textContent = label;
+
+    const chips = document.createElement("div");
+    chips.className = "configChips";
+
+    function renderChips(){
+      chips.innerHTML = "";
+      if (!draft[key].length){
+        const em = document.createElement("div");
+        em.className = "emptySmall"; em.textContent = "Sin elementos aún.";
+        chips.appendChild(em);
+      }
+      draft[key].forEach((val, idx) => {
+        const chip = document.createElement("span");
+        chip.className = "configChip";
+        const t = document.createElement("span"); t.textContent = val;
+        const x = document.createElement("button");
+        x.type = "button"; x.className = "configChipX"; x.textContent = "✕";
+        x.title = "Quitar";
+        x.onclick = () => { draft[key].splice(idx, 1); renderChips(); };
+        chip.append(t, x);
+        chips.appendChild(chip);
+      });
+    }
+
+    const addRow = document.createElement("div");
+    addRow.className = "row configAddRow";
+    const input = document.createElement("input");
+    input.className = "input"; input.placeholder = `Agregar ${label.toLowerCase()}…`;
+    const addBtn = document.createElement("button");
+    addBtn.type = "button"; addBtn.className = "btn small primary"; addBtn.textContent = "Agregar";
+    function doAdd(){
+      const v = safeTrim(input.value);
+      if (!v) return;
+      if (!draft[key].some(o => o.toLowerCase() === v.toLowerCase())){
+        draft[key] = normalizeList([...draft[key], v]);
+      }
+      input.value = ""; renderChips(); input.focus();
+    }
+    addBtn.onclick = doAdd;
+    input.onkeydown = (e) => { if (e.key === "Enter"){ e.preventDefault(); doAdd(); } };
+    addRow.append(input, addBtn);
+
+    box.append(h, chips, addRow);
+    renderChips();
+    listsWrap.appendChild(box);
+  }
+
+  buildGroup("Trabajadores", "workers");
+  buildGroup("Cargos", "roles");
+  buildGroup("Coordinadores", "coordinators");
+
+  const actions = document.createElement("div");
+  actions.className = "row modalActions";
+  const cancel = document.createElement("button");
+  cancel.type = "button"; cancel.className = "btn ghost"; cancel.textContent = "Cancelar";
+  const save = document.createElement("button");
+  save.type = "button"; save.className = "btn primary"; save.textContent = "Guardar";
+
+  function close(){ backdrop.remove(); document.removeEventListener("keydown", onKey); }
+  function onKey(e){ if (e.key === "Escape") close(); }
+
+  cancel.onclick = close;
+  save.onclick = async () => {
+    appConfig = {
+      workers: normalizeList(draft.workers),
+      roles: normalizeList(draft.roles),
+      coordinators: normalizeList(draft.coordinators)
+    };
+    populatePeopleSelects();
+    save.disabled = true; save.textContent = "Guardando…";
+    try{
+      await saveAppConfig();
+      showToast("Listas actualizadas ✅");
+      close();
+    }catch(e){
+      console.error(e);
+      showToast("No se pudieron guardar las listas");
+      save.disabled = false; save.textContent = "Guardar";
+    }
+  };
+
+  actions.append(cancel, save);
+  modal.append(title, desc, listsWrap, actions);
+  backdrop.appendChild(modal);
+  backdrop.addEventListener("click", e => { if (e.target === backdrop) close(); });
+  document.addEventListener("keydown", onKey);
+  document.body.appendChild(backdrop);
+}
+
+/* =====================================================================
    FORM + EVENTS
 ===================================================================== */
 function bindForm(){
@@ -2071,18 +2301,43 @@ function bindForm(){
   }
 
   if (fEmployeeName){
-    fEmployeeName.oninput = () => {
+    fEmployeeName.onchange = () => {
       if (!currentMeeting) return;
       currentMeeting.employeeName = fEmployeeName.value;
       currentMeeting.employeeKey = normEmployeeKey(fEmployeeName.value);
-      debounceSave();
+
+      // Autocompleta el periodo con el mes siguiente a la última acta del trabajador.
+      const suggested = suggestedPeriodForWorker(fEmployeeName.value);
+      if (suggested){
+        currentMeeting.periodLabel = suggested;
+        if (fPeriod) fPeriod.value = suggested;
+      }
+
+      // Refresca acuerdos anteriores para el trabajador seleccionado.
+      currentMeeting.previousActionsReview = [];
+      seedPreviousActionsReview();
+      renderPreviousActions();
+
+      renderActionsAndPrompt();
+      saveNow({ reason: "Datos generales guardados", silentOk: true });
     };
-    fEmployeeName.onblur = () => saveNow({ reason: "Datos generales guardados", silentOk: true });
   }
 
   if (fRole){
-    fRole.oninput = () => { if (!currentMeeting) return; currentMeeting.role = fRole.value; debounceSave(); };
-    fRole.onblur = () => saveNow({ silentOk: true });
+    fRole.onchange = () => {
+      if (!currentMeeting) return;
+      currentMeeting.role = fRole.value;
+      saveNow({ silentOk: true });
+    };
+  }
+
+  if (fCoordinator){
+    fCoordinator.onchange = () => {
+      if (!currentMeeting) return;
+      currentMeeting.coordinator = fCoordinator.value;
+      renderActionsAndPrompt();
+      saveNow({ silentOk: true });
+    };
   }
 
   if (fArea){
@@ -2165,6 +2420,7 @@ async function copyText(text){
 function wireButtons(){
   btnNew && (btnNew.onclick = () => createMeeting());
   btnNewEmpty && (btnNewEmpty.onclick = () => createMeeting());
+  btnConfigLists && (btnConfigLists.onclick = openConfigListsModal);
   btnConfigureSections && (btnConfigureSections.onclick = openSectionsConfigModal);
   btnClearLocal && (btnClearLocal.onclick = clearLocalDraft);
   btnBackupJson && (btnBackupJson.onclick = backupJson);
@@ -2240,6 +2496,7 @@ async function bootstrapApp(){
   currentMeeting = null;
   renderAll();
   btnCopyPrompt && (btnCopyPrompt.disabled = true);
+  await loadAppConfig();
   await listMeetings();
 }
 

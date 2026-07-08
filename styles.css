@@ -697,6 +697,53 @@ body{
   align-items: center;
 }
 
+/* Configuración de listas (trabajadores, cargos, coordinadores) */
+.configListsWrap{
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+.configGroup{
+  padding: 12px;
+  border: 1px solid rgba(11,16,32,.09);
+  border-radius: 16px;
+  background: rgba(246,248,255,.72);
+}
+.configChips{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+.configChip{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  border-radius: 999px;
+  background: rgba(12,65,196,.08);
+  border: 1px solid rgba(12,65,196,.18);
+  font-size: 13px;
+  font-weight: 650;
+}
+.configChipX{
+  border: 0;
+  cursor: pointer;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(11,16,32,.10);
+  color: rgba(11,16,32,.65);
+  font-size: 11px;
+  line-height: 1;
+}
+.configChipX:hover{ background: rgba(220,50,50,.16); color: #b02020; }
+.configAddRow{
+  gap: 8px;
+  align-items: center;
+}
+.configAddRow .input{ flex: 1; }
+
 @media (max-width: 720px){
   .configAddBox{
     grid-template-columns: 1fr;
