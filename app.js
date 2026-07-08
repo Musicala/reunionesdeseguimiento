@@ -591,7 +591,6 @@ const fEmployeeName = $("fEmployeeName");
 const fRole = $("fRole");
 const fCoordinator = $("fCoordinator");
 const fArea = $("fArea");
-const fAttendees = $("fAttendees");
 const fTemplate = $("fTemplate");
 const fPlace = $("fPlace");
 // Form nuevos
@@ -888,6 +887,10 @@ function normalizeMeeting(m){
   out.coordinators = normalizeList(Array.isArray(out.coordinators) ? out.coordinators : parseAttendees(out.coordinator));
   if (!out.coordinator && out.coordinators.length) out.coordinator = out.coordinators.join(", ");
   if (out.coordinator && !out.coordinators.length) out.coordinators = normalizeList(parseAttendees(out.coordinator));
+  if (out.coordinators.length){
+    out.attendees = out.coordinators.slice();
+    out.attendeesText = out.coordinator;
+  }
 
   // Campos nuevos con defaults seguros
   out.meetingKind = MEETING_KINDS.includes(safeTrim(out.meetingKind)) ? safeTrim(out.meetingKind) : (safeTrim(out.meetingKind) || "");
@@ -1320,7 +1323,6 @@ function renderAll(){
   fPeriod && (fPeriod.value = currentMeeting.periodLabel);
   populatePeopleSelects(); // Trabajador, Cargo y Coordinador (selects)
   fArea && (fArea.value = currentMeeting.area);
-  fAttendees && (fAttendees.value = currentMeeting.attendeesText);
   fTemplate && (fTemplate.value = getTemplate());
   fPlace && (fPlace.value = currentMeeting.place || "");
   fMeetingKind && (fMeetingKind.value = currentMeeting.meetingKind || "");
@@ -1912,8 +1914,8 @@ async function duplicateMeeting(){
     coordinators: currentMeeting.coordinators,
     area: currentMeeting.area,
     place: currentMeeting.place,
-    attendeesText: currentMeeting.attendeesText,
-    attendees: currentMeeting.attendees,
+    attendeesText: currentMeeting.coordinator,
+    attendees: currentMeeting.coordinators,
     meetingFrame: currentMeeting.meetingFrame
   });
 }
@@ -2172,6 +2174,8 @@ function syncMeetingCoordinators(values){
   if (!currentMeeting) return;
   currentMeeting.coordinators = normalizeList(values);
   currentMeeting.coordinator = currentMeeting.coordinators.join(", ");
+  currentMeeting.attendees = currentMeeting.coordinators.slice();
+  currentMeeting.attendeesText = currentMeeting.coordinator;
 }
 
 function populatePeopleSelects(){
@@ -2397,16 +2401,6 @@ function bindForm(){
       debounceSave();
     };
     fArea.onblur = () => saveNow({ silentOk: true });
-  }
-
-  if (fAttendees){
-    fAttendees.oninput = () => {
-      if (!currentMeeting) return;
-      currentMeeting.attendeesText = fAttendees.value;
-      currentMeeting.attendees = parseAttendees(fAttendees.value);
-      debounceSave();
-    };
-    fAttendees.onblur = () => saveNow({ silentOk: true });
   }
 
   if (fTemplate){
