@@ -2136,22 +2136,35 @@ function fillSelect(sel, options, currentValue){
   sel.value = val;
 }
 
-function fillMultiSelect(sel, options, currentValues){
-  if (!sel) return;
+function fillCoordinatorChecks(container, options, currentValues){
+  if (!container) return;
   const selected = normalizeList(currentValues);
   const all = normalizeList([...options, ...selected]);
-  sel.innerHTML = "";
+  container.innerHTML = "";
+  if (!all.length){
+    const empty = document.createElement("div");
+    empty.className = "emptySmall";
+    empty.textContent = "Agrega coordinadores en Configurar listas.";
+    container.appendChild(empty);
+    return;
+  }
   all.forEach(o => {
-    const op = document.createElement("option");
-    op.value = o; op.textContent = o;
-    op.selected = selected.some(v => v.toLowerCase() === o.toLowerCase());
-    sel.appendChild(op);
+    const label = document.createElement("label");
+    label.className = "checkOption";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = o;
+    input.checked = selected.some(v => v.toLowerCase() === o.toLowerCase());
+    const text = document.createElement("span");
+    text.textContent = o;
+    label.append(input, text);
+    container.appendChild(label);
   });
 }
 
-function selectedValues(sel){
-  return Array.from(sel?.selectedOptions || [])
-    .map(option => option.value)
+function checkedValues(container){
+  return Array.from(container?.querySelectorAll('input[type="checkbox"]:checked') || [])
+    .map(input => input.value)
     .filter(Boolean);
 }
 
@@ -2164,7 +2177,7 @@ function syncMeetingCoordinators(values){
 function populatePeopleSelects(){
   fillSelect(fEmployeeName, appConfig.workers, currentMeeting?.employeeName);
   fillSelect(fRole, appConfig.roles, currentMeeting?.role);
-  fillMultiSelect(fCoordinator, appConfig.coordinators, currentMeeting?.coordinators || parseAttendees(currentMeeting?.coordinator));
+  fillCoordinatorChecks(fCoordinator, appConfig.coordinators, currentMeeting?.coordinators || parseAttendees(currentMeeting?.coordinator));
 }
 
 // Busca el periodo de la última acta de un trabajador y devuelve el mes siguiente.
@@ -2365,7 +2378,7 @@ function bindForm(){
   if (fCoordinator){
     fCoordinator.onchange = () => {
       if (!currentMeeting) return;
-      syncMeetingCoordinators(selectedValues(fCoordinator));
+      syncMeetingCoordinators(checkedValues(fCoordinator));
       renderActionsAndPrompt();
       saveNow({ silentOk: true });
     };

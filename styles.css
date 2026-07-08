@@ -744,13 +744,40 @@ body{
 }
 .configAddRow .input{ flex: 1; }
 
-.input[multiple]{
-  min-height: 112px;
-  padding: 10px;
+.checkList{
+  min-height: 54px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: white;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
-.input[multiple] option{
-  padding: 8px 10px;
-  border-radius: 10px;
+.checkOption{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid rgba(11,16,32,.10);
+  border-radius: 999px;
+  background: rgba(246,248,255,.78);
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+  user-select: none;
+}
+.checkOption:has(input:checked){
+  border-color: rgba(12,65,196,.35);
+  background: rgba(12,65,196,.10);
+  color: #0c41c4;
+}
+.checkOption input{
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #0c41c4;
 }
 
 @media (max-width: 720px){
