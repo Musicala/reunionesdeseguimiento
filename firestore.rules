@@ -1,6 +1,9 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // APP DE ACTAS
     function hasOnlyMeetingKeys(data) {
       return data.keys().hasOnly([
         'status',
@@ -78,9 +81,65 @@ service cloud.firestore {
       allow delete: if isAllowedUser();
     }
 
+    // Shared editable lists for the meeting-minutes app.
+    // The UI reads and writes config/app for workers, roles, and coordinators.
     match /config/{docId} {
-      allow read: if isAllowedUser();
-      allow write: if isAllowedUser();
+      allow read, write: if isAllowedUser();
+    }
+
+    // APP DE RETROALIMENTACIONES
+    function fbSignedIn() {
+      return request.auth != null
+        && request.auth.token.email_verified == true;
+    }
+
+    function fbEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    function fbIsAdmin() {
+      return fbSignedIn() && fbEmail() in [
+        'alekcaballeromusic@gmail.com',
+        'catalina.medina.leal@gmail.com'
+      ];
+    }
+
+    function fbIsAuthorizedUser() {
+      return fbSignedIn()
+        && exists(/databases/$(database)/documents/authorizedFeedbackUsers/$(fbEmail()))
+        && get(/databases/$(database)/documents/authorizedFeedbackUsers/$(fbEmail())).data.active != false;
+    }
+
+    function fbCanUseApp() {
+      return fbIsAdmin() || fbIsAuthorizedUser();
+    }
+
+    match /feedbackEntries/{entryId} {
+      allow create: if fbCanUseApp()
+        && request.resource.data.createdByEmail == fbEmail()
+        && request.resource.data.status == 'pendiente';
+      allow read, update, delete: if fbIsAdmin();
+    }
+
+    match /people/{personId} {
+      allow read: if fbCanUseApp();
+      allow write: if fbIsAdmin();
+    }
+
+    match /authorizedFeedbackUsers/{email} {
+      allow get: if fbIsAdmin() || (fbSignedIn() && email == fbEmail());
+      allow list: if fbIsAdmin();
+      allow write: if fbIsAdmin();
+    }
+
+    match /feedbackFields/{docId} {
+      allow read: if fbCanUseApp();
+      allow write: if fbIsAdmin();
+    }
+
+    match /feedbackSettings/{docId} {
+      allow read: if fbCanUseApp();
+      allow write: if fbIsAdmin();
     }
 
     match /{document=**} {
