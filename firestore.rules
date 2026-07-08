@@ -3,7 +3,10 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // APP DE ACTAS
+    // =====================================================================
+    // APP DE ACTAS (existente) - copiado tal cual de las reglas previas.
+    // No modificar: garantiza que la app de actas siga funcionando igual.
+    // =====================================================================
     function hasOnlyMeetingKeys(data) {
       return data.keys().hasOnly([
         'status',
@@ -81,13 +84,16 @@ service cloud.firestore {
       allow delete: if isAllowedUser();
     }
 
-    // Shared editable lists for the meeting-minutes app.
-    // The UI reads and writes config/app for workers, roles, and coordinators.
+    // Configuracion compartida de la app de actas:
+    // trabajadores, cargos y coordinadores se guardan en config/app.
     match /config/{docId} {
-      allow read, write: if isAllowedUser();
+      allow read: if isAllowedUser();
+      allow write: if isAllowedUser();
     }
 
-    // APP DE RETROALIMENTACIONES
+    // =====================================================================
+    // APP DE RETROALIMENTACIONES (nueva) - colecciones separadas.
+    // =====================================================================
     function fbSignedIn() {
       return request.auth != null
         && request.auth.token.email_verified == true;
@@ -104,6 +110,8 @@ service cloud.firestore {
       ];
     }
 
+    // Usuario autorizado: su correo (en minusculas) existe como documento
+    // en authorizedFeedbackUsers y esta activo.
     function fbIsAuthorizedUser() {
       return fbSignedIn()
         && exists(/databases/$(database)/documents/authorizedFeedbackUsers/$(fbEmail()))
@@ -114,6 +122,8 @@ service cloud.firestore {
       return fbIsAdmin() || fbIsAuthorizedUser();
     }
 
+    // Entradas: usuarios autorizados solo pueden CREAR (no leer, ni listar,
+    // ni modificar). Solo admins pueden leer, actualizar y eliminar.
     match /feedbackEntries/{entryId} {
       allow create: if fbCanUseApp()
         && request.resource.data.createdByEmail == fbEmail()
@@ -121,27 +131,36 @@ service cloud.firestore {
       allow read, update, delete: if fbIsAdmin();
     }
 
+    // Personas: lectura para usuarios del canal (necesaria para el
+    // formulario); escritura solo admins.
     match /people/{personId} {
       allow read: if fbCanUseApp();
       allow write: if fbIsAdmin();
     }
 
+    // Correos autorizados: cada usuario puede leer UNICAMENTE su propio
+    // documento (para verificar su acceso). Solo admins gestionan la lista.
     match /authorizedFeedbackUsers/{email} {
       allow get: if fbIsAdmin() || (fbSignedIn() && email == fbEmail());
       allow list: if fbIsAdmin();
       allow write: if fbIsAdmin();
     }
 
+    // Configuracion de campos: lectura para usuarios del canal,
+    // escritura solo admins.
     match /feedbackFields/{docId} {
       allow read: if fbCanUseApp();
       allow write: if fbIsAdmin();
     }
 
+    // Configuracion general: lectura para usuarios del canal,
+    // escritura solo admins.
     match /feedbackSettings/{docId} {
       allow read: if fbCanUseApp();
       allow write: if fbIsAdmin();
     }
 
+    // Todo lo demas queda bloqueado (igual que en las reglas originales).
     match /{document=**} {
       allow read, write: if false;
     }
