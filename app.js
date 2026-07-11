@@ -1744,10 +1744,11 @@ function selectFrom(options, value, onChange){
 
 function getMeetingAttendees(){
   if (!currentMeeting) return [];
-  const attendees = Array.isArray(currentMeeting.attendees) && currentMeeting.attendees.length
+  const coordinators = Array.isArray(currentMeeting.attendees) && currentMeeting.attendees.length
     ? currentMeeting.attendees
     : (currentMeeting.coordinators || parseAttendees(currentMeeting.coordinator));
-  return normalizeList(attendees);
+  // En una reunión de seguimiento también participa la trabajadora evaluada.
+  return normalizeList([...coordinators, currentMeeting.employeeName]);
 }
 
 function responsibleSelect(value, onChange){
@@ -2513,6 +2514,7 @@ function bindForm(){
       seedPreviousActionsReview();
       renderPreviousActions();
 
+      renderSections();
       renderActionsAndPrompt();
       saveNow({ reason: "Datos generales guardados", silentOk: true });
     };
