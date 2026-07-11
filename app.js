@@ -5,7 +5,7 @@ console.log("APP JS CARGÓ ✅ (v4 — herramienta de conducción de reuniones)"
 // Firestore
 import {
   collection, addDoc, doc, getDoc, setDoc, updateDoc, deleteDoc,
-  query, orderBy, limit, getDocs, serverTimestamp
+  query, orderBy, limit, getDocs, onSnapshot, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 import {
@@ -594,6 +594,8 @@ let lastMeetingList = [];
 let lastSaveError = null;
 let currentUserEmail = "";
 let appConfig = { workers: [], roles: [], coordinators: [], baseTexts: {} };
+let unsubscribeMeetings = null;
+let unsubscribeCurrentMeeting = null;
 
 /* =====================================================================
    DOM
@@ -854,6 +856,11 @@ function clearLocalDraft(){
   showToast("Borrador local eliminado ✅");
 }
 
+function discardLocalDraft(id = currentMeetingId){
+  if (!id) return;
+  try{ localStorage.removeItem(`acta_draft_${id}`); }catch{}
+}
+
 /* =====================================================================
    DATA MODEL + MIGRACIÓN
 ===================================================================== */
@@ -1019,6 +1026,7 @@ async function saveRemote(){
       updatedAt: serverTimestamp()
     });
     dirty = false;
+    discardLocalDraft();
     setPill("ok");
     lastSaveError = null;
   }catch(e){
@@ -1032,6 +1040,11 @@ async function saveRemote(){
 /* =====================================================================
    FIRESTORE
 ===================================================================== */
+function useMeetingList(items){
+  lastMeetingList = items;
+  applyMeetingListFilter();
+}
+
 async function listMeetings(){
   try{
     const q = query(
@@ -1042,13 +1055,39 @@ async function listMeetings(){
     const snap = await getDocs(q);
     const items = [];
     snap.forEach(d => items.push({ id: d.id, ...d.data() }));
-    lastMeetingList = items;
-    applyMeetingListFilter();
+    useMeetingList(items);
   }catch(err){
     console.error(err);
     setPill("error");
     showToast("Error cargando reuniones");
   }
+}
+
+function watchMeetings(){
+  unsubscribeMeetings?.();
+  const q = query(collection(db, "meetings"), orderBy("updatedAt", "desc"), limit(200));
+  unsubscribeMeetings = onSnapshot(q, snap => {
+    useMeetingList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  }, err => {
+    console.error("No se pudo sincronizar la lista de actas", err);
+    showToast("No se pudieron sincronizar las actas en tiempo real");
+  });
+}
+
+function watchCurrentMeeting(id){
+  unsubscribeCurrentMeeting?.();
+  unsubscribeCurrentMeeting = onSnapshot(doc(db, "meetings", id), snap => {
+    if (!snap.exists()) return;
+    const updated = { id, ...snap.data() };
+    useMeetingList(lastMeetingList.some(m => m.id === id)
+      ? lastMeetingList.map(m => m.id === id ? updated : m)
+      : [updated, ...lastMeetingList]);
+    // Nunca pisar lo que esta persona está escribiendo antes de que termine su autosave.
+    if (id !== currentMeetingId || dirty) return;
+    currentMeeting = normalizeMeeting(snap.data());
+    renderAll();
+    setPill("ok", "🟢 Sincronizado");
+  }, err => console.error("No se pudo sincronizar esta acta", err));
 }
 
 async function deleteMeeting(id, label){
@@ -1115,19 +1154,23 @@ async function openMeeting(id){
   setPill("saving", "🟡 Cargando…");
 
   try{
+    watchCurrentMeeting(id);
     const ref = doc(db, "meetings", id);
     const snap = await getDoc(ref);
     if (!snap.exists()){
       setPill("error"); showToast("La reunión no existe"); return;
     }
     const remote = snap.data();
-    const local = loadLocalDraft(id);
+    // Un borrador local solo se usa sin conexión. En línea, Firestore siempre es
+    // la fuente compartida para no ocultar cambios hechos por otra persona.
+    const local = !navigator.onLine ? loadLocalDraft(id) : null;
     currentMeeting = local ? mergeMeeting(remote, local) : normalizeMeeting(remote);
 
     seedPreviousActionsReview(); // intenta traer acuerdos previos del mismo trabajador
 
     renderAll();
     saveLocalDraft();
+    if (navigator.onLine) discardLocalDraft(id);
     dirty = false;
     setPill("ok");
     btnCopyPrompt && (btnCopyPrompt.disabled = false);
@@ -1478,17 +1521,13 @@ function renderSections(){
       debounceSave();
       renderActionsAndPrompt();
     };
-    sel.onblur = () => saveNow({ reason: "Estado guardado", silentOk: true });
-
-    const saveBtn = document.createElement("button");
-    saveBtn.type = "button"; saveBtn.className = "btn small"; saveBtn.textContent = "Guardar sección";
-    saveBtn.onclick = async () => { await saveNow({ reason: "Sección guardada" }); renderActionsAndPrompt(); };
+    sel.onblur = () => saveNow({ silentOk: true });
 
     const toggleBtn = document.createElement("button");
     toggleBtn.type = "button"; toggleBtn.className = "btn small ghost"; toggleBtn.textContent = "Contraer";
     toggleBtn.onclick = () => toggleSectionBody(def.key);
 
-    controls.append(sel, saveBtn, toggleBtn);
+    controls.append(sel, toggleBtn);
     header.append(title, controls);
 
     const body = document.createElement("div");
@@ -2054,6 +2093,28 @@ async function duplicateMeeting(){
 function openSectionsConfigModal(){
   if (!currentMeetingId || !currentMeeting){ showToast("Primero crea o abre una reunion"); return; }
   let draft = getAllSectionDefsForConfig().map(x => ({ ...x }));
+  let configSaveTimer = null;
+
+  const commitDraft = async () => {
+    currentMeeting.sectionConfig = draft.map((item, index) => ({
+      key: item.key, title: safeTrim(item.title) || getSectionTitleByKey(currentMeeting, item.key),
+      description: safeTrim(item.description || ""), enabled: item.visible !== false && item.enabled !== false,
+      visible: item.visible !== false && item.enabled !== false, applies: item.applies !== false,
+      archived: item.archived === true, custom: item.custom === true, order: index
+    }));
+    currentMeeting.sectionConfig.forEach(cfg => {
+      if (!currentMeeting.sections[cfg.key]) currentMeeting.sections[cfg.key] = ensureSectionShape(null);
+      const sec = currentMeeting.sections?.[cfg.key];
+      if (sec?.actions) sec.actions = sec.actions.map(a => normalizeAction(a, cfg.key, cfg.title));
+    });
+    currentMeeting = normalizeMeeting(currentMeeting);
+    await saveNow({ silentOk: true });
+  };
+  const scheduleConfigSave = () => {
+    clearTimeout(configSaveTimer);
+    setPill("saving", "🟡 Guardando cambios de secciones…");
+    configSaveTimer = setTimeout(() => commitDraft().catch(e => console.error("No se pudo guardar la configuración de secciones", e)), 500);
+  };
 
   const backdrop = document.createElement("div");
   backdrop.className = "modalBackdrop";
@@ -2095,39 +2156,39 @@ function openSectionsConfigModal(){
       const visible = document.createElement("input");
       visible.type = "checkbox";
       visible.checked = item.visible !== false && item.enabled !== false;
-      visible.onchange = () => { item.visible = visible.checked; item.enabled = visible.checked; };
+      visible.onchange = () => { item.visible = visible.checked; item.enabled = visible.checked; scheduleConfigSave(); };
 
       const input = document.createElement("input");
       input.className = "input"; input.value = item.title; input.placeholder = "Nombre de la seccion";
-      input.oninput = () => { item.title = input.value; };
+      input.oninput = () => { item.title = input.value; scheduleConfigSave(); };
 
       const description = document.createElement("textarea");
       description.className = "textarea configDescription"; description.rows = 2;
       description.value = item.description || ""; description.placeholder = "Descripcion o guia interna opcional";
-      description.oninput = () => { item.description = description.value; };
+      description.oninput = () => { item.description = description.value; scheduleConfigSave(); };
 
       const appliesWrap = document.createElement("label");
       appliesWrap.className = "configCheck";
       const applies = document.createElement("input");
       applies.type = "checkbox"; applies.checked = item.applies !== false;
-      applies.onchange = () => { item.applies = applies.checked; };
+      applies.onchange = () => { item.applies = applies.checked; scheduleConfigSave(); };
       appliesWrap.append(applies, document.createTextNode(" Aplica"));
 
       const up = document.createElement("button");
       up.type = "button"; up.className = "btn small ghost"; up.textContent = "Subir"; up.disabled = index === 0;
-      up.onclick = () => { [draft[index-1], draft[index]] = [draft[index], draft[index-1]]; renderRows(); };
+      up.onclick = () => { [draft[index-1], draft[index]] = [draft[index], draft[index-1]]; renderRows(); scheduleConfigSave(); };
 
       const down = document.createElement("button");
       down.type = "button"; down.className = "btn small ghost"; down.textContent = "Bajar"; down.disabled = index === draft.length - 1;
-      down.onclick = () => { [draft[index+1], draft[index]] = [draft[index], draft[index+1]]; renderRows(); };
+      down.onclick = () => { [draft[index+1], draft[index]] = [draft[index], draft[index+1]]; renderRows(); scheduleConfigSave(); };
 
       const remove = document.createElement("button");
       remove.type = "button"; remove.className = "btn small ghost"; remove.textContent = item.custom ? "Quitar" : "Ocultar";
       remove.onclick = () => {
         if (item.custom){
-          draft = draft.filter(x => x.key !== item.key); renderRows(); return;
+          draft = draft.filter(x => x.key !== item.key); renderRows(); scheduleConfigSave(); return;
         }
-        item.visible = false; item.enabled = false; visible.checked = false;
+        item.visible = false; item.enabled = false; visible.checked = false; scheduleConfigSave();
       };
 
       const label = document.createElement("div");
@@ -2155,38 +2216,22 @@ function openSectionsConfigModal(){
     else draft.push(newSection);
     addTitle.value = ""; addDescription.value = ""; addOrder.value = "";
     renderRows();
+    scheduleConfigSave();
   };
 
   const actions = document.createElement("div");
   actions.className = "row modalActions";
   const reset = document.createElement("button");
   reset.type = "button"; reset.className = "btn ghost"; reset.textContent = "Restablecer plantilla";
-  reset.onclick = () => { draft = defaultSectionConfig(getTemplate()).map(x => ({ ...x })); renderRows(); };
+  reset.onclick = () => { draft = defaultSectionConfig(getTemplate()).map(x => ({ ...x })); renderRows(); scheduleConfigSave(); };
   const cancel = document.createElement("button");
-  cancel.type = "button"; cancel.className = "btn ghost"; cancel.textContent = "Cancelar"; cancel.onclick = close;
+  cancel.type = "button"; cancel.className = "btn ghost"; cancel.textContent = "Cerrar"; cancel.onclick = close;
   const apply = document.createElement("button");
-  apply.type = "button"; apply.className = "btn primary"; apply.textContent = "Guardar cambios";
+  apply.type = "button"; apply.className = "btn primary"; apply.textContent = "Listo";
   apply.onclick = async () => {
-    currentMeeting.sectionConfig = draft.map((item, index) => ({
-      key: item.key,
-      title: safeTrim(item.title) || getSectionTitleByKey(currentMeeting, item.key),
-      description: safeTrim(item.description || ""),
-      enabled: item.visible !== false && item.enabled !== false,
-      visible: item.visible !== false && item.enabled !== false,
-      applies: item.applies !== false,
-      archived: item.archived === true,
-      custom: item.custom === true,
-      order: index
-    }));
-    currentMeeting.sectionConfig.forEach(cfg => {
-      if (!currentMeeting.sections[cfg.key]) currentMeeting.sections[cfg.key] = ensureSectionShape(null);
-      const sec = currentMeeting.sections?.[cfg.key];
-      if (!sec?.actions) return;
-      sec.actions = sec.actions.map(a => normalizeAction(a, cfg.key, cfg.title));
-    });
-    currentMeeting = normalizeMeeting(currentMeeting);
+    clearTimeout(configSaveTimer);
+    await commitDraft();
     renderAll();
-    await saveNow({ reason: "Configuracion de secciones guardada" });
     close();
   };
 
@@ -2663,6 +2708,7 @@ window.onbeforeunload = e => { if (!dirty) return; e.preventDefault(); e.returnV
 window.addEventListener("online", () => {
   if (!currentMeetingId) return setPill("idle");
   setPill(dirty ? "saving" : "idle");
+  if (dirty) saveNow({ silentOk: true });
 });
 window.addEventListener("offline", () => setPill("offline"));
 
@@ -2687,6 +2733,7 @@ async function bootstrapApp(){
   btnCopyPrompt && (btnCopyPrompt.disabled = true);
   await loadAppConfig();
   await listMeetings();
+  watchMeetings();
 }
 
 function populateFilters(){
