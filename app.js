@@ -189,8 +189,33 @@ const BASE_SECTION_TEXTS = {
   }
 };
 
-function getBaseSectionText(templateKey, sectionKey){
+function getDefaultBaseSectionText(templateKey, sectionKey){
   return BASE_SECTION_TEXTS[templateKey]?.[sectionKey] || "";
+}
+
+// Devuelve el texto base personalizado (config compartida) o el de fábrica.
+function getBaseSectionText(templateKey, sectionKey){
+  const custom = appConfig?.baseTexts?.[templateKey]?.[sectionKey];
+  if (typeof custom === "string" && custom.trim()) return custom;
+  return getDefaultBaseSectionText(templateKey, sectionKey);
+}
+
+async function saveBaseSectionText(templateKey, sectionKey, text){
+  const clean = safeTrim(text);
+  if (!appConfig.baseTexts || typeof appConfig.baseTexts !== "object") appConfig.baseTexts = {};
+  if (!appConfig.baseTexts[templateKey]) appConfig.baseTexts[templateKey] = {};
+  const isDefault = clean === getDefaultBaseSectionText(templateKey, sectionKey);
+  if (!clean || isDefault){
+    delete appConfig.baseTexts[templateKey][sectionKey];
+  } else {
+    appConfig.baseTexts[templateKey][sectionKey] = clean;
+  }
+  await saveAppConfig();
+}
+
+function hasCustomBaseText(templateKey, sectionKey){
+  const custom = appConfig?.baseTexts?.[templateKey]?.[sectionKey];
+  return typeof custom === "string" && !!custom.trim();
 }
 
 const TITLE_MIGRATION = {
@@ -568,7 +593,7 @@ let dirty = false;
 let lastMeetingList = [];
 let lastSaveError = null;
 let currentUserEmail = "";
-let appConfig = { workers: [], roles: [], coordinators: [] };
+let appConfig = { workers: [], roles: [], coordinators: [], baseTexts: {} };
 
 /* =====================================================================
    DOM
@@ -1506,18 +1531,23 @@ function renderSections(){
     };
     ta.onblur = () => saveNow({ reason: "Notas guardadas", silentOk: true });
 
-    const baseText = getBaseSectionText(getTemplate(), def.key);
-    if (baseText){
+    const templateKey = getTemplate();
+    const baseText = getBaseSectionText(templateKey, def.key);
+    {
       const baseBox = document.createElement("div");
       baseBox.className = "baseTextBox";
       const baseCopy = document.createElement("div");
       baseCopy.className = "baseTextCopy";
       const baseLabel = document.createElement("div");
       baseLabel.className = "baseTextLabel";
-      baseLabel.textContent = "Texto base sugerido";
+      baseLabel.textContent = hasCustomBaseText(templateKey, def.key)
+        ? "Texto base sugerido (personalizado)"
+        : "Texto base sugerido";
       const basePreview = document.createElement("div");
       basePreview.className = "baseTextPreview";
-      basePreview.textContent = baseText;
+      basePreview.textContent = baseText || "Esta sección no tiene texto base todavía.";
+      const baseBtns = document.createElement("div");
+      baseBtns.className = "baseTextBtns";
       const useBaseBtn = document.createElement("button");
       useBaseBtn.type = "button";
       useBaseBtn.className = "btn small baseTextButton";
@@ -1539,9 +1569,72 @@ function renderSections(){
         showToast("Texto base aplicado. Puedes editarlo si lo necesitas.");
         ta.focus();
       };
+
+      if (!baseText) useBaseBtn.classList.add("hidden");
+
+      const editBaseBtn = document.createElement("button");
+      editBaseBtn.type = "button";
+      editBaseBtn.className = "btn small ghost baseTextButton";
+      editBaseBtn.textContent = baseText ? "Editar texto base" : "Agregar texto base";
+
+      // Editor plegable del texto base (se guarda para todas las actas)
+      const editWrap = document.createElement("div");
+      editWrap.className = "baseTextEdit hidden";
+      const editTa = document.createElement("textarea");
+      editTa.className = "textarea";
+      editTa.rows = 3;
+      editTa.placeholder = "Texto base de esta sección…";
+      const editHint = document.createElement("div");
+      editHint.className = "muted tiny";
+      editHint.textContent = "Este texto base se guarda para todas las actas de esta plantilla.";
+      const editActions = document.createElement("div");
+      editActions.className = "row baseTextEditActions";
+      const saveEdit = document.createElement("button");
+      saveEdit.type = "button"; saveEdit.className = "btn small primary"; saveEdit.textContent = "Guardar texto base";
+      const resetEdit = document.createElement("button");
+      resetEdit.type = "button"; resetEdit.className = "btn small ghost"; resetEdit.textContent = "Restablecer original";
+      const cancelEdit = document.createElement("button");
+      cancelEdit.type = "button"; cancelEdit.className = "btn small ghost"; cancelEdit.textContent = "Cancelar";
+
+      editBaseBtn.onclick = () => {
+        const open = !editWrap.classList.contains("hidden");
+        if (open){ editWrap.classList.add("hidden"); return; }
+        editTa.value = getBaseSectionText(templateKey, def.key);
+        resetEdit.classList.toggle("hidden", !hasCustomBaseText(templateKey, def.key));
+        editWrap.classList.remove("hidden");
+        editTa.focus();
+      };
+      cancelEdit.onclick = () => editWrap.classList.add("hidden");
+      saveEdit.onclick = async () => {
+        try{
+          await saveBaseSectionText(templateKey, def.key, editTa.value);
+          showToast("Texto base guardado para todas las actas.");
+          renderSections();
+        }catch(e){
+          console.error("No se pudo guardar el texto base", e);
+          showToast("No se pudo guardar el texto base. Revisa tu conexión o permisos.");
+        }
+      };
+      resetEdit.onclick = async () => {
+        const ok = window.confirm("¿Volver al texto base original de esta sección?");
+        if (!ok) return;
+        try{
+          await saveBaseSectionText(templateKey, def.key, "");
+          showToast("Texto base restablecido al original.");
+          renderSections();
+        }catch(e){
+          console.error("No se pudo restablecer el texto base", e);
+          showToast("No se pudo restablecer el texto base. Revisa tu conexión o permisos.");
+        }
+      };
+
+      editActions.append(saveEdit, resetEdit, cancelEdit);
+      editWrap.append(editTa, editHint, editActions);
+
       baseCopy.append(baseLabel, basePreview);
-      baseBox.append(baseCopy, useBaseBtn);
-      body.appendChild(baseBox);
+      baseBtns.append(useBaseBtn, editBaseBtn);
+      baseBox.append(baseCopy, baseBtns);
+      body.append(baseBox, editWrap);
     }
 
     // Acuerdos por sección
@@ -1649,6 +1742,41 @@ function selectFrom(options, value, onChange){
   return sel;
 }
 
+function getMeetingAttendees(){
+  if (!currentMeeting) return [];
+  const attendees = Array.isArray(currentMeeting.attendees) && currentMeeting.attendees.length
+    ? currentMeeting.attendees
+    : (currentMeeting.coordinators || parseAttendees(currentMeeting.coordinator));
+  return normalizeList(attendees);
+}
+
+function responsibleSelect(value, onChange){
+  const attendees = getMeetingAttendees();
+  const sel = document.createElement("select");
+  sel.className = "input";
+
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = attendees.length ? "Selecciona responsable…" : "Primero marca asistentes arriba";
+  sel.appendChild(placeholder);
+
+  attendees.forEach(name => {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    sel.appendChild(option);
+  });
+
+  sel.value = attendees.some(name => name === value) ? value : "";
+  sel.disabled = attendees.length === 0;
+  sel.title = attendees.length
+    ? "Responsable: selecciona uno de los asistentes de esta reunión"
+    : "Marca los asistentes de la reunión para poder asignar un responsable";
+  sel.onchange = onChange;
+  sel.onblur = () => saveNow({ silentOk: true });
+  return sel;
+}
+
 function renderActionRow(sectionKey, sectionTitle, action){
   const a = normalizeAction(action, sectionKey, sectionTitle);
 
@@ -1665,11 +1793,10 @@ function renderActionRow(sectionKey, sectionTitle, action){
   const type = selectFrom(ACTION_TYPES, a.type, () => { a.type = typeEl.value; syncAction(sectionKey, a); });
   const typeEl = type;
 
-  const owner = document.createElement("input");
-  owner.className = "input"; owner.placeholder = "Responsable";
-  owner.value = a.owner;
-  owner.oninput = () => { a.owner = owner.value; syncAction(sectionKey, a); };
-  owner.onblur = () => saveNow({ silentOk: true });
+  const owner = responsibleSelect(a.owner, () => {
+    a.owner = owner.value;
+    syncAction(sectionKey, a);
+  });
 
   const grid1 = document.createElement("div");
   grid1.className = "actionGrid g3";
@@ -2091,6 +2218,24 @@ function normalizeList(arr){
     .sort((a, b) => a.localeCompare(b, "es"));
 }
 
+// Sanea el mapa de textos base { plantilla: { seccion: texto } }
+function normalizeBaseTexts(raw){
+  const out = {};
+  if (raw && typeof raw === "object"){
+    Object.keys(raw).forEach(tpl => {
+      const group = raw[tpl];
+      if (!group || typeof group !== "object") return;
+      Object.keys(group).forEach(key => {
+        const text = safeTrim(group[key]);
+        if (!text) return;
+        if (!out[tpl]) out[tpl] = {};
+        out[tpl][key] = text;
+      });
+    });
+  }
+  return out;
+}
+
 async function loadAppConfig(){
   try{
     const snap = await getDoc(doc(db, "config", CONFIG_DOC_ID));
@@ -2098,11 +2243,12 @@ async function loadAppConfig(){
     appConfig = {
       workers: normalizeList(d.workers),
       roles: normalizeList(d.roles),
-      coordinators: normalizeList(d.coordinators)
+      coordinators: normalizeList(d.coordinators),
+      baseTexts: normalizeBaseTexts(d.baseTexts)
     };
   }catch(e){
     console.error("No se pudo cargar la configuración", e);
-    appConfig = { workers: [], roles: [], coordinators: [] };
+    appConfig = { workers: [], roles: [], coordinators: [], baseTexts: {} };
   }
   populatePeopleSelects();
 }
@@ -2112,6 +2258,7 @@ async function saveAppConfig(){
     workers: appConfig.workers,
     roles: appConfig.roles,
     coordinators: appConfig.coordinators,
+    baseTexts: normalizeBaseTexts(appConfig.baseTexts),
     updatedBy: currentUserEmail || "",
     updatedAt: serverTimestamp()
   });
@@ -2383,6 +2530,8 @@ function bindForm(){
     fCoordinator.onchange = () => {
       if (!currentMeeting) return;
       syncMeetingCoordinators(checkedValues(fCoordinator));
+      // Los responsables de cada acuerdo dependen de los asistentes marcados.
+      renderSections();
       renderActionsAndPrompt();
       saveNow({ silentOk: true });
     };

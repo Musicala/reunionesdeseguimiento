@@ -437,6 +437,22 @@ body{
   border-color: rgba(12,65,196,.25);
   background: rgba(255,255,255,.82);
 }
+.baseTextBtns{
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.baseTextEdit{
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px dashed rgba(12,65,196,.25);
+  border-radius: 14px;
+  background: rgba(12,65,196,.03);
+}
+.baseTextEditActions{ gap: 8px; flex-wrap: wrap; }
 
 .secActions{
   border: 1px dashed rgba(30,36,60,.16);
