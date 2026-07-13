@@ -967,17 +967,19 @@ body{
 .prevCtrl{ display:grid; grid-template-columns: 200px 1fr; gap: 8px; }
 
 /* Acuerdos: grids compactos */
+.actionGrid.g2{ grid-template-columns: 1.6fr 1fr; }
 .actionGrid.g3{ grid-template-columns: 1.4fr 1fr 1fr; }
 .actionGrid.g4{ grid-template-columns: 1fr 1fr 1fr 1fr; }
+.responsibleList{ min-height: 44px; }
 .actionRow{ display:grid; gap:8px; }
 .actionFooter{ display:flex; justify-content:flex-end; }
 
 @media (max-width: 820px){
-  .actionGrid.g3, .actionGrid.g4{ grid-template-columns: 1fr 1fr; }
+  .actionGrid.g2, .actionGrid.g3, .actionGrid.g4{ grid-template-columns: 1fr 1fr; }
   .prevCtrl{ grid-template-columns: 1fr; }
 }
 @media (max-width: 520px){
-  .actionGrid.g3, .actionGrid.g4{ grid-template-columns: 1fr; }
+  .actionGrid.g2, .actionGrid.g3, .actionGrid.g4{ grid-template-columns: 1fr; }
   .filterRow{ flex-direction: column; }
 }
 @media (max-width: 720px){

@@ -774,11 +774,18 @@ function makeSectionKey(title, existingKeys = []){
 function normalizeAction(a, sectionKey, sectionTitle){
   if (typeof a === "string") a = { title: a };
   a = a || {};
+  // Un acuerdo puede tener varios responsables. Se guarda el arreglo `owners`
+  // y se mantiene `owner` como texto unido para compatibilidad (prompt, copiado, seguimientos).
+  const owners = normalizeList(
+    Array.isArray(a.owners) ? a.owners
+      : parseAttendees(a.owner || a.responsable || "")
+  );
   return {
     id: a.id || nowId(),
     title: safeTrim(a.title || a.accion || a.acuerdo || ""),
     type: ACTION_TYPES.includes(a.type) ? a.type : "acuerdo",
-    owner: safeTrim(a.owner || a.responsable || ""),
+    owners,
+    owner: owners.join(", "),
     dueDateISO: safeTrim(a.dueDateISO || a.fecha || a.due || ""),
     followUpDateISO: safeTrim(a.followUpDateISO || ""),
     priority: ACTION_PRIORITIES.includes(a.priority) ? a.priority : "media",
@@ -792,7 +799,7 @@ function normalizeAction(a, sectionKey, sectionTitle){
 }
 
 function actionHasContent(a){
-  return !!(safeTrim(a.title) || safeTrim(a.owner) || safeTrim(a.dueDateISO) ||
+  return !!(safeTrim(a.title) || (Array.isArray(a.owners) && a.owners.length) || safeTrim(a.owner) || safeTrim(a.dueDateISO) ||
             safeTrim(a.followUpDateISO) || safeTrim(a.details) || safeTrim(a.expectedEvidence));
 }
 
@@ -1790,31 +1797,40 @@ function getMeetingAttendees(){
   return normalizeList([...coordinators, currentMeeting.employeeName]);
 }
 
-function responsibleSelect(value, onChange){
+function responsibleCheckboxes(selectedOwners, onChange){
   const attendees = getMeetingAttendees();
-  const sel = document.createElement("select");
-  sel.className = "input";
+  const selected = normalizeList(Array.isArray(selectedOwners) ? selectedOwners : parseAttendees(selectedOwners || ""));
 
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = attendees.length ? "Selecciona responsable…" : "Primero marca asistentes arriba";
-  sel.appendChild(placeholder);
+  const container = document.createElement("div");
+  container.className = "checkList responsibleList";
+  container.title = attendees.length
+    ? "Responsables: marca uno o varios asistentes de esta reunión"
+    : "Marca los asistentes de la reunión para poder asignar responsables";
+
+  if (!attendees.length){
+    const empty = document.createElement("div");
+    empty.className = "emptySmall";
+    empty.textContent = "Primero marca asistentes arriba";
+    container.appendChild(empty);
+    return container;
+  }
 
   attendees.forEach(name => {
-    const option = document.createElement("option");
-    option.value = name;
-    option.textContent = name;
-    sel.appendChild(option);
+    const label = document.createElement("label");
+    label.className = "checkOption";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = name;
+    input.checked = selected.some(v => v.toLowerCase() === name.toLowerCase());
+    input.onchange = () => onChange(checkedValues(container));
+    input.onblur = () => saveNow({ silentOk: true });
+    const text = document.createElement("span");
+    text.textContent = name;
+    label.append(input, text);
+    container.appendChild(label);
   });
 
-  sel.value = attendees.some(name => name === value) ? value : "";
-  sel.disabled = attendees.length === 0;
-  sel.title = attendees.length
-    ? "Responsable: selecciona uno de los asistentes de esta reunión"
-    : "Marca los asistentes de la reunión para poder asignar un responsable";
-  sel.onchange = onChange;
-  sel.onblur = () => saveNow({ silentOk: true });
-  return sel;
+  return container;
 }
 
 function renderActionRow(sectionKey, sectionTitle, action){
@@ -1823,7 +1839,7 @@ function renderActionRow(sectionKey, sectionTitle, action){
   const row = document.createElement("div");
   row.className = "actionRow";
 
-  // Fila 1: acción / tipo / responsable
+  // Fila 1: acción / tipo
   const title = document.createElement("input");
   title.className = "input"; title.placeholder = "Acción / acuerdo";
   title.value = a.title;
@@ -1833,14 +1849,20 @@ function renderActionRow(sectionKey, sectionTitle, action){
   const type = selectFrom(ACTION_TYPES, a.type, () => { a.type = typeEl.value; syncAction(sectionKey, a); });
   const typeEl = type;
 
-  const owner = responsibleSelect(a.owner, () => {
-    a.owner = owner.value;
+  const grid1 = document.createElement("div");
+  grid1.className = "actionGrid g2";
+  grid1.append(title, type);
+
+  // Responsables (uno o varios asistentes de la reunión)
+  const ownersLabel = document.createElement("span");
+  ownersLabel.className = "label";
+  ownersLabel.style.marginTop = "6px";
+  ownersLabel.textContent = "Responsables";
+  const ownersBox = responsibleCheckboxes(a.owners, (values) => {
+    a.owners = normalizeList(values);
+    a.owner = a.owners.join(", ");
     syncAction(sectionKey, a);
   });
-
-  const grid1 = document.createElement("div");
-  grid1.className = "actionGrid g3";
-  grid1.append(title, type, owner);
 
   // Fila 2: fecha compromiso / fecha seguimiento / prioridad / estado
   const due = document.createElement("input");
@@ -1889,7 +1911,7 @@ function renderActionRow(sectionKey, sectionTitle, action){
   footer.className = "actionFooter";
   footer.append(del);
 
-  row.append(grid1, grid2, evidence, details, footer);
+  row.append(grid1, ownersLabel, ownersBox, grid2, evidence, details, footer);
   return row;
 }
 
