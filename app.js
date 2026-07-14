@@ -985,6 +985,27 @@ function debounceSave(){
   saveTimer = setTimeout(() => saveNow({ silentOk: true }), 900);
 }
 
+// Mientras se escribe solo se guarda el borrador local: el guardado remoto se hace al salir del campo
+// (onblur), para que la sincronización no vuelva a dibujar la pantalla y saque el cursor de la celda.
+function markPendingSave(){
+  if (!currentMeetingId || !currentMeeting) {
+    setPill("idle", "⚪ Abre o crea una reunión");
+    return;
+  }
+  dirty = true;
+  saveLocalDraft();
+  clearTimeout(saveTimer);
+  setPill(navigator.onLine ? "saving" : "offline");
+}
+
+// ¿La persona está escribiendo en algún campo ahora mismo?
+function isEditingField(){
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = (el.tagName || "").toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select" || el.isContentEditable;
+}
+
 async function saveNow(opts = {}){
   const { reason = "", silentOk = false } = opts;
   if (!currentMeetingId || !currentMeeting){
@@ -1090,8 +1111,9 @@ function watchCurrentMeeting(id){
     useMeetingList(lastMeetingList.some(m => m.id === id)
       ? lastMeetingList.map(m => m.id === id ? updated : m)
       : [updated, ...lastMeetingList]);
-    // Nunca pisar lo que esta persona está escribiendo antes de que termine su autosave.
-    if (id !== currentMeetingId || dirty) return;
+    // Nunca pisar lo que esta persona está escribiendo antes de que termine su autosave,
+    // ni redibujar mientras tiene el cursor dentro de un campo.
+    if (id !== currentMeetingId || dirty || isEditingField()) return;
     currentMeeting = normalizeMeeting(snap.data());
     renderAll();
     setPill("ok", "🟢 Sincronizado");
@@ -1299,7 +1321,7 @@ function renderPreviousActions(){
     comment.className = "input";
     comment.placeholder = "Comentario de seguimiento";
     comment.value = r.comment || "";
-    comment.oninput = () => { r.comment = comment.value; debounceSave(); };
+    comment.oninput = () => { r.comment = comment.value; markPendingSave(); };
     comment.onblur = () => saveNow({ silentOk: true });
 
     ctrl.append(sel, comment);
@@ -1575,7 +1597,7 @@ function renderSections(){
     ta.oninput = () => {
       sec.notes = ta.value;
       updateSectionWarning(card, def.key);
-      debounceSave();
+      markPendingSave();
       renderActionsAndPrompt();
     };
     ta.onblur = () => saveNow({ reason: "Notas guardadas", silentOk: true });
@@ -1846,7 +1868,7 @@ function renderActionRow(sectionKey, sectionTitle, action){
   const title = document.createElement("input");
   title.className = "input"; title.placeholder = "Acción / acuerdo";
   title.value = a.title;
-  title.oninput = () => { a.title = title.value; syncAction(sectionKey, a); };
+  title.oninput = () => { a.title = title.value; syncAction(sectionKey, a, { typing: true }); };
   title.onblur = () => saveNow({ silentOk: true });
 
   const type = selectFrom(ACTION_TYPES, a.type, () => { a.type = typeEl.value; syncAction(sectionKey, a); });
@@ -1894,13 +1916,13 @@ function renderActionRow(sectionKey, sectionTitle, action){
   const evidence = document.createElement("input");
   evidence.className = "input"; evidence.placeholder = "Evidencia esperada (¿cómo sabremos que mejoró?)";
   evidence.value = a.expectedEvidence;
-  evidence.oninput = () => { a.expectedEvidence = evidence.value; syncAction(sectionKey, a); };
+  evidence.oninput = () => { a.expectedEvidence = evidence.value; syncAction(sectionKey, a, { typing: true }); };
   evidence.onblur = () => saveNow({ silentOk: true });
 
   const details = document.createElement("textarea");
   details.className = "textarea"; details.rows = 2; details.placeholder = "Detalles (opcional)";
   details.value = a.details;
-  details.oninput = () => { a.details = details.value; syncAction(sectionKey, a); };
+  details.oninput = () => { a.details = details.value; syncAction(sectionKey, a, { typing: true }); };
   details.onblur = () => saveNow({ silentOk: true });
 
   const del = document.createElement("button");
@@ -1918,14 +1940,16 @@ function renderActionRow(sectionKey, sectionTitle, action){
   return row;
 }
 
-function syncAction(sectionKey, actionObj){
+function syncAction(sectionKey, actionObj, opts = {}){
   const sec = currentMeeting.sections[sectionKey];
   if (!sec?.actions) return;
   const idx = sec.actions.findIndex(x => (x.id || "") === actionObj.id);
   if (idx >= 0) sec.actions[idx] = actionObj;
   else sec.actions.push(actionObj);
   renderActionsAndPrompt();
-  debounceSave();
+  // Al escribir solo se marca el borrador; el guardado remoto ocurre al salir del campo.
+  if (opts.typing) markPendingSave();
+  else debounceSave();
 }
 
 function renderActionsAndPrompt(){
@@ -2562,7 +2586,7 @@ function bindForm(){
   }
 
   if (fPeriod){
-    fPeriod.oninput = () => { if (!currentMeeting) return; currentMeeting.periodLabel = fPeriod.value; debounceSave(); renderActionsAndPrompt(); };
+    fPeriod.oninput = () => { if (!currentMeeting) return; currentMeeting.periodLabel = fPeriod.value; markPendingSave(); renderActionsAndPrompt(); };
     fPeriod.onblur = () => saveNow({ silentOk: true });
   }
 
@@ -2637,7 +2661,7 @@ function bindForm(){
   }
 
   if (fPlace){
-    fPlace.oninput = () => { if (!currentMeeting) return; currentMeeting.place = fPlace.value; debounceSave(); };
+    fPlace.oninput = () => { if (!currentMeeting) return; currentMeeting.place = fPlace.value; markPendingSave(); };
     fPlace.onblur = () => saveNow({ silentOk: true });
   }
 
@@ -2653,12 +2677,12 @@ function bindForm(){
   }
 
   if (fObjective){
-    fObjective.oninput = () => { if (!currentMeeting) return; currentMeeting.objective = fObjective.value; debounceSave(); renderActionsAndPrompt(); };
+    fObjective.oninput = () => { if (!currentMeeting) return; currentMeeting.objective = fObjective.value; markPendingSave(); renderActionsAndPrompt(); };
     fObjective.onblur = () => saveNow({ silentOk: true });
   }
 
   if (fMeetingFrame){
-    fMeetingFrame.oninput = () => { if (!currentMeeting) return; currentMeeting.meetingFrame = fMeetingFrame.value; debounceSave(); renderActionsAndPrompt(); };
+    fMeetingFrame.oninput = () => { if (!currentMeeting) return; currentMeeting.meetingFrame = fMeetingFrame.value; markPendingSave(); renderActionsAndPrompt(); };
     fMeetingFrame.onblur = () => saveNow({ silentOk: true });
   }
 }
@@ -2730,6 +2754,11 @@ function wireSearch(){
 }
 
 window.onbeforeunload = e => { if (!dirty) return; e.preventDefault(); e.returnValue = ""; };
+
+// Red de seguridad: si la persona cambia de pestaña o minimiza sin salir del campo, guardamos igual.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden" && dirty && currentMeetingId) saveNow({ silentOk: true });
+});
 window.addEventListener("online", () => {
   if (!currentMeetingId) return setPill("idle");
   setPill(dirty ? "saving" : "idle");
