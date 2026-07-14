@@ -232,12 +232,14 @@ export function buildPrompt(meeting){
   const prevBlock = prevReview.length
     ? prevReview.slice(0, 40).map((r, i) => {
         const title = safeOneLine(r?.originalTitle) || "No se registró información";
+        const desc  = safeMultiline(r?.originalDetails) || "No se registró información";
         const date  = safeOneLine(r?.sourceDate) || "No se registró información";
         const prev  = safeOneLine(r?.previousStatus) || "No se registró información";
         const foll  = safeOneLine(r?.followStatus) || "No se registró información";
         const comm  = safeMultiline(r?.comment) || "No se registró información";
         return [
           `${i + 1}) Acuerdo anterior: ${title}`,
+          `   - Descripción del acuerdo: ${desc}`,
           `   - Fecha anterior: ${date}`,
           `   - Estado anterior: ${prev}`,
           `   - Estado de seguimiento: ${foll}`,

@@ -963,6 +963,7 @@ body{
   background: rgba(255,255,255,.75);
 }
 .prevTitle{ font-weight: 700; }
+.prevDetails{ font-size: 13px; margin-top: 2px; white-space: pre-wrap; }
 .prevMeta{ font-size: 12px; color: var(--muted); margin: 2px 0 8px; }
 .prevCtrl{ display:grid; grid-template-columns: 200px 1fr; gap: 8px; }
 

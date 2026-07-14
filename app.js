@@ -953,6 +953,7 @@ function normalizePrevReview(r){
     sourceMeetingId: safeTrim(r.sourceMeetingId),
     sourceDate: safeTrim(r.sourceDate),
     originalTitle: safeTrim(r.originalTitle),
+    originalDetails: safeTrim(r.originalDetails),
     originalOwner: safeTrim(r.originalOwner),
     previousStatus: safeTrim(r.previousStatus) || "pendiente",
     followStatus: FOLLOW_STATUS.includes(r.followStatus) ? r.followStatus : "Pendiente de revisar",
@@ -1237,6 +1238,7 @@ function seedPreviousActionsReview(){
         sourceMeetingId: m.id,
         sourceDate: safeTrim(m.dateISO),
         originalTitle: title,
+        originalDetails: safeTrim(a?.details),
         originalOwner: safeTrim(a?.owner),
         previousStatus: st,
         followStatus: "Pendiente de revisar",
@@ -1276,6 +1278,7 @@ function renderPreviousActions(){
     head.className = "prevHead";
     head.innerHTML = `
       <div class="prevTitle">${escapeHtml(r.originalTitle || "—")}</div>
+      ${r.originalDetails ? `<div class="prevDetails">${escapeHtml(r.originalDetails)}</div>` : ``}
       <div class="prevMeta">${escapeHtml(r.sourceDate || "—")} · estado previo: ${escapeHtml(r.previousStatus || "—")}${r.originalOwner ? " · " + escapeHtml(r.originalOwner) : ""}</div>
     `;
 
