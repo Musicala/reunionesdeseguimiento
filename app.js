@@ -525,6 +525,56 @@ function defaultSectionConfig(templateKey = "admin"){
   }));
 }
 
+// Configuración de secciones compartida por plantilla (nombres, descripciones, orden y visibilidad).
+// Vive en config/app, no en cada acta: al renombrar una sección el cambio aplica a todas las actas.
+function templateSectionConfig(templateKey = "admin"){
+  const defaults = defaultSectionConfig(templateKey);
+  const saved = Array.isArray(appConfig?.sectionConfigs?.[templateKey]) ? appConfig.sectionConfigs[templateKey] : null;
+  if (!saved || !saved.length) return defaults;
+
+  const defaultKeys = new Set(defaults.map(d => d.key));
+  const byKey = new Map();
+  saved.forEach((item, index) => {
+    const key = safeTrim(item?.key);
+    if (!key) return;
+    const def = defaults.find(d => d.key === key);
+    const visible = item?.visible !== false && item?.enabled !== false;
+    byKey.set(key, {
+      key,
+      title: safeTrim(item?.title) || def?.title || key,
+      description: safeTrim(item?.description ?? def?.description ?? ""),
+      enabled: visible,
+      visible,
+      applies: true,
+      archived: item?.archived === true,
+      custom: item?.custom === true || !defaultKeys.has(key),
+      order: Number.isFinite(Number(item?.order)) ? Number(item.order) : index
+    });
+  });
+  // Secciones nuevas de la plantilla que aún no estaban en la config guardada.
+  defaults.forEach(def => { if (!byKey.has(def.key)) byKey.set(def.key, { ...def }); });
+
+  return Array.from(byKey.values())
+    .filter(item => item.archived !== true)
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map((item, index) => ({ ...item, order: index }));
+}
+
+async function saveTemplateSectionConfig(templateKey, config){
+  if (!appConfig.sectionConfigs || typeof appConfig.sectionConfigs !== "object") appConfig.sectionConfigs = {};
+  appConfig.sectionConfigs[templateKey] = (Array.isArray(config) ? config : []).map((item, index) => ({
+    key: safeTrim(item.key),
+    title: safeTrim(item.title),
+    description: safeTrim(item.description || ""),
+    enabled: item.visible !== false && item.enabled !== false,
+    visible: item.visible !== false && item.enabled !== false,
+    archived: item.archived === true,
+    custom: item.custom === true,
+    order: index
+  })).filter(item => item.key);
+  await saveAppConfig();
+}
+
 function allDefaultSections(){
   return Object.values(TEMPLATES).flatMap(t => t.sections);
 }
@@ -541,32 +591,34 @@ function migrateTitle(key, title){
 
 function normalizeSectionConfig(meeting){
   const templateKey = templateFromMeeting(meeting);
-  const defaults = defaultSectionConfig(templateKey);
+  // Nombres, descripciones, orden y visibilidad vienen de la config compartida.
+  // Del acta solo se conserva si la sección "aplica" y las secciones propias que no estén en la config global.
+  const base = templateSectionConfig(templateKey);
   const incoming = Array.isArray(meeting?.sectionConfig) ? meeting.sectionConfig : [];
+  const baseKeys = new Set(base.map(b => b.key));
   const byKey = new Map();
-  const defaultKeys = new Set(defaults.map(def => def.key));
 
+  base.forEach(def => {
+    const mine = incoming.find(i => safeTrim(i?.key) === def.key);
+    byKey.set(def.key, { ...def, applies: mine ? mine.applies !== false : true });
+  });
+
+  // Secciones personalizadas creadas en esta acta antes de que la config fuera compartida.
   incoming.forEach((item, index) => {
     const key = safeTrim(item?.key);
-    if (!key) return;
-    const def = defaults.find(d => d.key === key);
+    if (!key || baseKeys.has(key)) return;
     const visible = item?.visible !== false && item?.enabled !== false;
-    const custom = item?.custom === true || !defaultKeys.has(key);
     byKey.set(key, {
       key,
-      title: migrateTitle(key, safeTrim(item?.title) || def?.title || key) || def?.title || key,
-      description: safeTrim(item?.description || item?.guide || def?.description || ""),
+      title: migrateTitle(key, safeTrim(item?.title) || key) || key,
+      description: safeTrim(item?.description || item?.guide || ""),
       enabled: visible,
       visible,
       applies: item?.applies !== false,
       archived: item?.archived === true,
-      custom,
-      order: Number.isFinite(Number(item?.order)) ? Number(item.order) : index
+      custom: true,
+      order: base.length + index
     });
-  });
-
-  defaults.forEach(def => {
-    if (!byKey.has(def.key)) byKey.set(def.key, def);
   });
 
   return Array.from(byKey.values())
@@ -593,7 +645,7 @@ let dirty = false;
 let lastMeetingList = [];
 let lastSaveError = null;
 let currentUserEmail = "";
-let appConfig = { workers: [], roles: [], coordinators: [], baseTexts: {} };
+let appConfig = { workers: [], roles: [], coordinators: [], baseTexts: {}, sectionConfigs: {} };
 let unsubscribeMeetings = null;
 let unsubscribeCurrentMeeting = null;
 
@@ -2145,6 +2197,14 @@ function openSectionsConfigModal(){
   let configSaveTimer = null;
 
   const commitDraft = async () => {
+    // 1) La estructura (nombres, descripciones, orden, visibilidad) se guarda para todas las actas.
+    try{
+      await saveTemplateSectionConfig(getTemplate(), draft);
+    }catch(e){
+      console.error("No se pudo guardar la configuración de secciones compartida", e);
+      showToast("No se pudo guardar la configuración de secciones para todas las actas ⚠️");
+    }
+    // 2) En el acta solo queda el "aplica" de cada sección.
     currentMeeting.sectionConfig = draft.map((item, index) => ({
       key: item.key, title: safeTrim(item.title) || getSectionTitleByKey(currentMeeting, item.key),
       description: safeTrim(item.description || ""), enabled: item.visible !== false && item.enabled !== false,
@@ -2179,7 +2239,7 @@ function openSectionsConfigModal(){
 
   const desc = document.createElement("p");
   desc.className = "muted";
-  desc.textContent = "Edita el nombre, la descripcion, el orden, la visibilidad y si cada seccion aplica para esta reunion. Las secciones ocultas no saldran en el acta.";
+  desc.textContent = "El nombre, la descripcion, el orden y la visibilidad de las secciones se guardan para TODAS las actas. La casilla \"Aplica\" es solo de esta reunion.";
 
   const addBox = document.createElement("div");
   addBox.className = "configAddBox";
@@ -2331,6 +2391,34 @@ function normalizeBaseTexts(raw){
   return out;
 }
 
+// Sanea el mapa de configuraciones de secciones { plantilla: [ {key, title, ...} ] }
+function normalizeSectionConfigs(raw){
+  const out = {};
+  if (raw && typeof raw === "object"){
+    Object.keys(raw).forEach(tpl => {
+      const list = raw[tpl];
+      if (!Array.isArray(list)) return;
+      const clean = list.map((item, index) => {
+        const key = safeTrim(item?.key);
+        if (!key) return null;
+        const visible = item?.visible !== false && item?.enabled !== false;
+        return {
+          key,
+          title: migrateTitle(key, safeTrim(item?.title)) || key,
+          description: safeTrim(item?.description || item?.guide || ""),
+          enabled: visible,
+          visible,
+          archived: item?.archived === true,
+          custom: item?.custom === true,
+          order: Number.isFinite(Number(item?.order)) ? Number(item.order) : index
+        };
+      }).filter(Boolean);
+      if (clean.length) out[tpl] = clean;
+    });
+  }
+  return out;
+}
+
 async function loadAppConfig(){
   try{
     const snap = await getDoc(doc(db, "config", CONFIG_DOC_ID));
@@ -2339,11 +2427,12 @@ async function loadAppConfig(){
       workers: normalizeList(d.workers),
       roles: normalizeList(d.roles),
       coordinators: normalizeList(d.coordinators),
-      baseTexts: normalizeBaseTexts(d.baseTexts)
+      baseTexts: normalizeBaseTexts(d.baseTexts),
+      sectionConfigs: normalizeSectionConfigs(d.sectionConfigs)
     };
   }catch(e){
     console.error("No se pudo cargar la configuración", e);
-    appConfig = { workers: [], roles: [], coordinators: [], baseTexts: {} };
+    appConfig = { workers: [], roles: [], coordinators: [], baseTexts: {}, sectionConfigs: {} };
   }
   populatePeopleSelects();
 }
@@ -2354,6 +2443,7 @@ async function saveAppConfig(){
     roles: appConfig.roles,
     coordinators: appConfig.coordinators,
     baseTexts: normalizeBaseTexts(appConfig.baseTexts),
+    sectionConfigs: normalizeSectionConfigs(appConfig.sectionConfigs),
     updatedBy: currentUserEmail || "",
     updatedAt: serverTimestamp()
   });
