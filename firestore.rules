@@ -15,6 +15,7 @@ service cloud.firestore {
         'periodLabel',
         'employeeName',
         'employeeKey',
+        'participantName',
         'role',
         'coordinator',
         'coordinators',
@@ -41,11 +42,12 @@ service cloud.firestore {
     function isValidMeeting(data) {
       return hasOnlyMeetingKeys(data)
         && (!('status' in data) || data.status in ['draft', 'final'])
-        && (!('template' in data) || data.template in ['admin', 'docente'])
+        && (!('template' in data) || data.template in ['admin', 'docente', 'prestacion', 'acudientes'])
         && (!('dateISO' in data) || data.dateISO is string)
         && (!('periodLabel' in data) || data.periodLabel is string)
         && (!('employeeName' in data) || data.employeeName is string)
         && (!('employeeKey' in data) || data.employeeKey is string)
+        && (!('participantName' in data) || data.participantName is string)
         && (!('role' in data) || data.role is string)
         && (!('coordinator' in data) || data.coordinator is string)
         && (!('coordinators' in data) || data.coordinators is list)

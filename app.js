@@ -103,6 +103,12 @@ const DEFAULT_MEETING_FRAME =
   "concretos para el siguiente ciclo. Esta reunión corresponde a un espacio de seguimiento y " +
   "retroalimentación, y no constituye por sí misma una diligencia de descargos ni una decisión disciplinaria.";
 
+function defaultMeetingFrameFor(template){
+  if (template === "prestacion") return "El objetivo de esta reunión es revisar el avance del servicio, los entregables, las novedades y los acuerdos necesarios para su continuidad. Es un espacio de coordinación y seguimiento, no una diligencia disciplinaria.";
+  if (template === "acudientes") return "El objetivo de esta reunión es escuchar a las personas participantes, revisar el proceso o situación planteada y definir orientaciones y acuerdos de acompañamiento. Se desarrollará con un trato respetuoso, claro y centrado en el bienestar y el proceso formativo.";
+  return DEFAULT_MEETING_FRAME;
+}
+
 /* =====================================================================
    PLANTILLAS (secciones por tipo)
    NOTA: "Encuadre" y "Seguimiento de acuerdos anteriores" se manejan como
@@ -149,6 +155,36 @@ const TEMPLATES = {
       { key:"proyeccion",           title:"Proyección del siguiente periodo" },
       { key:"palabrasDocente",      title:"Palabras del docente" },
       { key:"bienestar",            title:"Espacios de bienestar" },
+    ]
+  },
+  prestacion: {
+    key: "prestacion",
+    label: "Prestación de servicios",
+    titleSuffix: "Prestación de servicios",
+    sections: [
+      { key:"objetoServicio", title:"Objeto del servicio y alcance acordado" },
+      { key:"entregables", title:"Entregables, avances y evidencias" },
+      { key:"cumplimientoServicio", title:"Cumplimiento de tiempos y compromisos" },
+      { key:"comunicacionServicio", title:"Comunicación y coordinación con Musicala" },
+      { key:"novedadesServicio", title:"Novedades, riesgos o bloqueos" },
+      { key:"apoyosServicio", title:"Apoyos o definiciones requeridas por Musicala" },
+      { key:"proyeccionServicio", title:"Próximos pasos y proyección" },
+      { key:"palabrasPrestador", title:"Observaciones de la persona prestadora" },
+      { key:"cierreServicio", title:"Cierre y constancia de la reunión" },
+    ]
+  },
+  acudientes: {
+    key: "acudientes",
+    label: "Acudientes o estudiantes",
+    titleSuffix: "Acudiente o estudiante",
+    sections: [
+      { key:"motivoEncuentro", title:"Motivo y contexto de la reunión" },
+      { key:"procesoEstudiante", title:"Proceso, avances o situación revisada" },
+      { key:"perspectivaParticipante", title:"Perspectiva del acudiente o estudiante" },
+      { key:"orientacionesMusicala", title:"Orientaciones y acompañamiento de Musicala" },
+      { key:"acuerdosFamilia", title:"Acuerdos y compromisos definidos" },
+      { key:"seguimientoFamilia", title:"Seguimiento y próximos pasos" },
+      { key:"observacionesFinales", title:"Observaciones finales y cierre" },
     ]
   }
 };
@@ -668,6 +704,12 @@ const fDate = $("fDate");
 const fPeriod = $("fPeriod");
 const fEmployeeName = $("fEmployeeName");
 const fRole = $("fRole");
+const fParticipantName = $("fParticipantName");
+const employeeField = $("employeeField");
+const roleField = $("roleField");
+const participantField = $("participantField");
+const employeeLabel = $("employeeLabel");
+const roleLabel = $("roleLabel");
 const fCoordinator = $("fCoordinator");
 const fArea = $("fArea");
 const fTemplate = $("fTemplate");
@@ -937,6 +979,7 @@ function makeBaseMeeting(template = "admin"){
     periodLabel: "",
     employeeName: "",
     employeeKey: "",
+    participantName: "",
     role: "",
     coordinator: "",
     coordinators: [],
@@ -946,7 +989,7 @@ function makeBaseMeeting(template = "admin"){
     place: "",
     meetingKind: "",
     objective: "",
-    meetingFrame: DEFAULT_MEETING_FRAME,
+    meetingFrame: defaultMeetingFrameFor(t),
     previousActionsReview: [],
     sectionConfig: defaultSectionConfig(t),
     sections,
@@ -986,8 +1029,9 @@ function normalizeMeeting(m){
   // Campos nuevos con defaults seguros
   out.meetingKind = MEETING_KINDS.includes(safeTrim(out.meetingKind)) ? safeTrim(out.meetingKind) : (safeTrim(out.meetingKind) || "");
   out.objective = (out.objective ?? "").toString();
-  out.meetingFrame = safeTrim(out.meetingFrame) ? out.meetingFrame.toString() : DEFAULT_MEETING_FRAME;
+  out.meetingFrame = safeTrim(out.meetingFrame) ? out.meetingFrame.toString() : defaultMeetingFrameFor(out.template);
   out.employeeKey = normEmployeeKey(out.employeeName);
+  out.participantName = (out.participantName ?? "").toString();
   out.previousActionsReview = Array.isArray(out.previousActionsReview)
     ? out.previousActionsReview.map(normalizePrevReview)
     : [];
@@ -1271,13 +1315,15 @@ function seedPreviousActionsReview(){
   // Si ya hay revisión guardada, respetarla.
   if (Array.isArray(currentMeeting.previousActionsReview) && currentMeeting.previousActionsReview.length) return;
 
-  const key = normEmployeeKey(currentMeeting.employeeName);
+  const subjectName = getTemplate() === "acudientes" ? currentMeeting.participantName : currentMeeting.employeeName;
+  const key = normEmployeeKey(subjectName);
   if (!key) return;
 
   const myDate = safeTrim(currentMeeting.dateISO);
   const prior = (lastMeetingList || [])
     .filter(m => m.id !== currentMeetingId)
-    .filter(m => normEmployeeKey(m.employeeName) === key)
+    .filter(m => templateFromMeeting(m) === getTemplate())
+    .filter(m => normEmployeeKey(templateFromMeeting(m) === "acudientes" ? m.participantName : m.employeeName) === key)
     .filter(m => safeTrim(m.dateISO) <= myDate) // anteriores o mismas fechas
     .sort((a, b) => safeTrim(b.dateISO).localeCompare(safeTrim(a.dateISO)));
 
@@ -1473,7 +1519,9 @@ function renderAll(){
 
   fDate && (fDate.value = currentMeeting.dateISO);
   fPeriod && (fPeriod.value = currentMeeting.periodLabel);
+  renderTemplateFields();
   populatePeopleSelects(); // Trabajador, Cargo y Coordinador (selects)
+  fParticipantName && (fParticipantName.value = currentMeeting.participantName || "");
   fArea && (fArea.value = currentMeeting.area);
   fTemplate && (fTemplate.value = getTemplate());
   fPlace && (fPlace.value = currentMeeting.place || "");
@@ -1490,6 +1538,16 @@ function renderAll(){
   renderPreviousActions();
   renderSections();
   renderActionsAndPrompt();
+}
+
+function renderTemplateFields(){
+  const isFamilyMeeting = getTemplate() === "acudientes";
+  const isServiceMeeting = getTemplate() === "prestacion";
+  employeeField?.classList.toggle("hidden", isFamilyMeeting);
+  roleField?.classList.toggle("hidden", isFamilyMeeting);
+  participantField?.classList.toggle("hidden", !isFamilyMeeting);
+  if (employeeLabel) employeeLabel.textContent = isServiceMeeting ? "Persona prestadora del servicio" : "Trabajador";
+  if (roleLabel) roleLabel.textContent = isServiceMeeting ? "Servicio / rol" : "Cargo";
 }
 
 function renderEmptyState(){
@@ -1871,7 +1929,8 @@ function getMeetingAttendees(){
     ? currentMeeting.attendees
     : (currentMeeting.coordinators || parseAttendees(currentMeeting.coordinator));
   // En una reunión de seguimiento también participa la trabajadora evaluada.
-  return normalizeList([...coordinators, currentMeeting.employeeName]);
+  const participant = getTemplate() === "acudientes" ? currentMeeting.participantName : currentMeeting.employeeName;
+  return normalizeList([...coordinators, participant]);
 }
 
 function responsibleCheckboxes(selectedOwners, onChange){
@@ -2086,9 +2145,11 @@ function validateForFinal(){
   const m = currentMeeting;
   if (!m) return { errors: ["No hay reunión abierta."], warnings };
 
-  if (!safeTrim(m.employeeName)) errors.push("Falta el nombre del trabajador.");
+  if (getTemplate() === "acudientes") {
+    if (!safeTrim(m.participantName)) errors.push("Falta el nombre del acudiente o estudiante.");
+  } else if (!safeTrim(m.employeeName)) errors.push("Falta el nombre del trabajador.");
   if (!safeTrim(m.dateISO)) errors.push("Falta la fecha.");
-  if (!safeTrim(m.role)) errors.push("Falta el cargo.");
+  if (getTemplate() !== "acudientes" && !safeTrim(m.role)) errors.push("Falta el cargo o servicio.");
   if (!safeTrim(m.meetingKind)) errors.push("Falta seleccionar el tipo de reunión.");
 
   const actions = consolidateActions(m);
@@ -2107,10 +2168,10 @@ function validateForFinal(){
     warnings.push(`Hay ${flagged.length} sección(es) con contenido pero marcadas como "No revisado" o "No aplica".`);
 
   // Palabras del trabajador / docente
-  const palabrasKey = getTemplate() === "docente" ? "palabrasDocente" : "palabrasTrabajador";
+  const palabrasKey = getTemplate() === "docente" ? "palabrasDocente" : getTemplate() === "prestacion" ? "palabrasPrestador" : getTemplate() === "acudientes" ? "perspectivaParticipante" : "palabrasTrabajador";
   const palabras = m.sections?.[palabrasKey];
   if (!palabras || !sectionHasContent(palabras))
-    warnings.push('No se registraron "Palabras del trabajador".');
+    warnings.push(getTemplate() === "acudientes" ? 'No se registró la perspectiva del acudiente o estudiante.' : 'No se registraron las observaciones de la persona participante.');
 
   // Cierre (solo admin tiene sección de cierre)
   const cierre = m.sections?.cierre;
@@ -2704,6 +2765,20 @@ function bindForm(){
     };
   }
 
+  if (fParticipantName){
+    fParticipantName.oninput = () => {
+      if (!currentMeeting) return;
+      currentMeeting.participantName = fParticipantName.value;
+      currentMeeting.previousActionsReview = [];
+      seedPreviousActionsReview();
+      renderPreviousActions();
+      renderSections();
+      renderActionsAndPrompt();
+      markPendingSave();
+    };
+    fParticipantName.onblur = () => saveNow({ reason: "Datos generales guardados", silentOk: true });
+  }
+
   if (fRole){
     fRole.onchange = () => {
       if (!currentMeeting) return;
@@ -2742,7 +2817,9 @@ function bindForm(){
     fTemplate.onchange = () => {
       if (!currentMeeting) return;
       const next = TEMPLATES[fTemplate.value] ? fTemplate.value : "admin";
+      const previousDefault = defaultMeetingFrameFor(currentMeeting.template);
       currentMeeting.template = next;
+      if (!safeTrim(currentMeeting.meetingFrame) || currentMeeting.meetingFrame === previousDefault) currentMeeting.meetingFrame = defaultMeetingFrameFor(next);
       currentMeeting.sectionConfig = normalizeSectionConfig(currentMeeting);
       renderAll();
       debounceSave();

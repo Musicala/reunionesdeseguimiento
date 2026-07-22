@@ -93,6 +93,34 @@ export function buildPrompt(meeting){
         ["palabrasDocente","Palabras del docente"],
         ["bienestar","Espacios de bienestar"],
       ]
+    },
+    prestacion: {
+      label: "Prestación de servicios",
+      areaDefault: "Administrativa",
+      sections: [
+        ["objetoServicio","Objeto del servicio y alcance acordado"],
+        ["entregables","Entregables, avances y evidencias"],
+        ["cumplimientoServicio","Cumplimiento de tiempos y compromisos"],
+        ["comunicacionServicio","Comunicación y coordinación con Musicala"],
+        ["novedadesServicio","Novedades, riesgos o bloqueos"],
+        ["apoyosServicio","Apoyos o definiciones requeridas por Musicala"],
+        ["proyeccionServicio","Próximos pasos y proyección"],
+        ["palabrasPrestador","Observaciones de la persona prestadora"],
+        ["cierreServicio","Cierre y constancia de la reunión"],
+      ]
+    },
+    acudientes: {
+      label: "Acudientes o estudiantes",
+      areaDefault: "Académica",
+      sections: [
+        ["motivoEncuentro","Motivo y contexto de la reunión"],
+        ["procesoEstudiante","Proceso, avances o situación revisada"],
+        ["perspectivaParticipante","Perspectiva del acudiente o estudiante"],
+        ["orientacionesMusicala","Orientaciones y acompañamiento de Musicala"],
+        ["acuerdosFamilia","Acuerdos y compromisos definidos"],
+        ["seguimientoFamilia","Seguimiento y próximos pasos"],
+        ["observacionesFinales","Observaciones finales y cierre"],
+      ]
     }
   };
 
@@ -139,7 +167,9 @@ export function buildPrompt(meeting){
   // ---------- Header data ----------
   const dateStr   = toISODateMaybe(m.dateISO || m.date || m.fecha);
   const period    = safeOneLine(m.periodLabel || m.period || m.periodo);
-  const employee  = safeOneLine(m.employeeName || m.workerName || m.trabajador || m.nombreTrabajador);
+  const employee  = safeOneLine(templateKey === "acudientes" ? m.participantName : (m.employeeName || m.workerName || m.trabajador || m.nombreTrabajador));
+  const subjectLabel = templateKey === "acudientes" ? "Acudiente o estudiante" : templateKey === "prestacion" ? "Persona prestadora del servicio" : "Trabajador";
+  const roleLabel = templateKey === "prestacion" ? "Servicio / rol" : "Cargo";
   const role      = safeOneLine(m.role || m.cargo);
   const coordinator = (() => {
     const raw = m.coordinators || m.coordinator || m.coordinador;
@@ -166,8 +196,12 @@ export function buildPrompt(meeting){
   const meetingFrame = safeMultiline(m.meetingFrame) ||
     "Esta reunión corresponde a un espacio de seguimiento y retroalimentación, y no constituye por sí misma una diligencia de descargos ni una decisión disciplinaria.";
 
-  const objective = safeMultiline(m.objective || m.objetivo) ||
-    `Realizar seguimiento al desempeño y procesos asociados del/de la ${template.label.toLowerCase()} en Musicala, revisando avances, observaciones, acuerdos y proyección.`;
+  const defaultObjective = templateKey === "acudientes"
+    ? "Revisar el proceso o situación planteada, escuchar a las personas participantes y definir orientaciones y acuerdos de acompañamiento."
+    : templateKey === "prestacion"
+      ? "Revisar el avance del servicio, sus entregables, novedades y los acuerdos requeridos para su continuidad."
+      : `Realizar seguimiento al desempeño y procesos asociados del/de la ${template.label.toLowerCase()} en Musicala, revisando avances, observaciones, acuerdos y proyección.`;
+  const objective = safeMultiline(m.objective || m.objetivo) || defaultObjective;
 
   // ---------- Secciones ----------
   const sectionsObj = (m.sections && typeof m.sections === "object") ? m.sections : {};
@@ -323,7 +357,7 @@ export function buildPrompt(meeting){
     "- El insumo de abajo usa 'No se registró información' o '—' para marcar campos vacíos. Trátalos como AUSENCIA de dato: no los copies al acta; simplemente no menciones ese punto.",
     "- Incluye todas las secciones que tengan contenido. Omite por completo las secciones realmente vacías (sin notas ni acuerdos): no las listes ni con un título.",
     "- No conviertas una reunión de seguimiento en una sanción disciplinaria si eso no fue expresamente registrado.",
-    "- No emitas diagnósticos personales, psicológicos ni juicios de carácter sobre el trabajador.",
+    "- No emitas diagnósticos personales, psicológicos ni juicios de carácter sobre ninguna persona participante.",
     "",
     "REDACTOR PROFESIONAL (MUY IMPORTANTE):",
     "- NO transcribas ni copies textualmente ningún texto del contenido registrado.",
@@ -348,8 +382,8 @@ export function buildPrompt(meeting){
     `Estado del acta en sistema: ${status || "—"}`,
     `Fecha: ${dateStr || "—"}`,
     `Periodo evaluado: ${period || "—"}`,
-    `Trabajador: ${employee || "—"}`,
-    `Cargo: ${role || "—"}`,
+    `${subjectLabel}: ${employee || "—"}`,
+    `${roleLabel}: ${role || "—"}`,
     `Coordinador: ${coordinator || "—"}`,
     `Área: ${area || "—"}`,
     `Lugar/Modalidad: ${place || "—"}`,
