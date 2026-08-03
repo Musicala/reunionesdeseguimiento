@@ -497,6 +497,66 @@ const GUIDE_LABELS = {
 };
 const GUIDE_ORDER = ["open", "ask", "feedback", "listen", "close", "avoid"];
 
+/* Guías personalizadas por plantilla y sección (config compartida).
+   Estructura: appConfig.sectionGuides[plantilla][seccion] = { open:[], ask:[], ... } */
+function normalizeGuide(raw){
+  const out = {};
+  if (raw && typeof raw === "object"){
+    GUIDE_ORDER.forEach(part => {
+      const arr = Array.isArray(raw[part]) ? raw[part] : [];
+      const clean = arr.map(v => safeTrim(v)).filter(Boolean);
+      if (clean.length) out[part] = clean;
+    });
+  }
+  return out;
+}
+
+function guideIsEmpty(guide){
+  return !guide || !GUIDE_ORDER.some(part => Array.isArray(guide[part]) && guide[part].length);
+}
+
+function getDefaultSectionGuide(sectionKey){
+  return FACILITATOR_GUIDES[sectionKey] || null;
+}
+
+// Devuelve la guía personalizada (config compartida) o la de fábrica.
+function getSectionGuide(templateKey, sectionKey){
+  const custom = normalizeGuide(appConfig?.sectionGuides?.[templateKey]?.[sectionKey]);
+  if (!guideIsEmpty(custom)) return custom;
+  return getDefaultSectionGuide(sectionKey);
+}
+
+function hasCustomSectionGuide(templateKey, sectionKey){
+  return !guideIsEmpty(normalizeGuide(appConfig?.sectionGuides?.[templateKey]?.[sectionKey]));
+}
+
+async function saveSectionGuide(templateKey, sectionKey, guide){
+  const clean = normalizeGuide(guide);
+  if (!appConfig.sectionGuides || typeof appConfig.sectionGuides !== "object") appConfig.sectionGuides = {};
+  if (!appConfig.sectionGuides[templateKey]) appConfig.sectionGuides[templateKey] = {};
+  if (guideIsEmpty(clean)) delete appConfig.sectionGuides[templateKey][sectionKey];
+  else appConfig.sectionGuides[templateKey][sectionKey] = clean;
+  await saveAppConfig();
+}
+
+// Sanea el mapa completo { plantilla: { seccion: guia } }
+function normalizeSectionGuides(raw){
+  const out = {};
+  if (raw && typeof raw === "object"){
+    Object.keys(raw).forEach(tpl => {
+      const group = raw[tpl];
+      if (!group || typeof group !== "object") return;
+      Object.keys(group).forEach(key => {
+        const guide = normalizeGuide(group[key]);
+        if (guideIsEmpty(guide)) return;
+        if (!out[tpl]) out[tpl] = {};
+        out[tpl][key] = guide;
+      });
+    });
+  }
+  return out;
+}
+
 /* =====================================================================
    FRASES GUÍA GENERALES (editables) — solo ayuda visual
 ===================================================================== */
@@ -681,7 +741,7 @@ let dirty = false;
 let lastMeetingList = [];
 let lastSaveError = null;
 let currentUserEmail = "";
-let appConfig = { workers: [], roles: [], coordinators: [], baseTexts: {}, sectionConfigs: {} };
+let appConfig = { workers: [], roles: [], coordinators: [], baseTexts: {}, sectionConfigs: {}, sectionGuides: {} };
 let unsubscribeMeetings = null;
 let unsubscribeCurrentMeeting = null;
 
@@ -1592,6 +1652,13 @@ function renderKindBadgeAndAlert(){
 function buildGuideNode(guide){
   const box = document.createElement("div");
   box.className = "guideBox";
+  if (guideIsEmpty(guide)){
+    const empty = document.createElement("div");
+    empty.className = "muted";
+    empty.textContent = "Esta sección todavía no tiene guía. Usa “Editar guía” para escribirla.";
+    box.appendChild(empty);
+    return box;
+  }
   GUIDE_ORDER.forEach(part => {
     const arr = guide[part];
     if (!Array.isArray(arr) || !arr.length) return;
@@ -1682,13 +1749,28 @@ function renderSections(){
     warn.textContent = "⚠️ Esta sección tiene contenido aunque está marcada como No aplica.";
     body.appendChild(warn);
 
-    // Guía del facilitador (plegable)
-    const guide = FACILITATOR_GUIDES[def.key];
-    if (guide){
+    // Guía del facilitador (plegable y editable; se guarda para todas las actas)
+    {
+      const tplKey = getTemplate();
+      const guide = getSectionGuide(tplKey, def.key) || {};
+
+      const guideRow = document.createElement("div");
+      guideRow.className = "row guideRow";
+
       const guideToggle = document.createElement("button");
       guideToggle.type = "button";
       guideToggle.className = "btn small guideToggle";
-      guideToggle.textContent = "💬 Guía para conducir esta sección";
+      guideToggle.textContent = hasCustomSectionGuide(tplKey, def.key)
+        ? "💬 Guía para conducir esta sección (personalizada)"
+        : "💬 Guía para conducir esta sección";
+
+      const editGuideBtn = document.createElement("button");
+      editGuideBtn.type = "button";
+      editGuideBtn.className = "btn small ghost";
+      editGuideBtn.textContent = guideIsEmpty(guide) ? "Agregar guía" : "Editar guía";
+
+      guideRow.append(guideToggle, editGuideBtn);
+
       const guideNode = buildGuideNode(guide);
       guideNode.classList.add("hidden");
       guideToggle.onclick = () => {
@@ -1696,7 +1778,86 @@ function renderSections(){
         guideNode.classList.toggle("hidden", open);
         guideToggle.classList.toggle("active", !open);
       };
-      body.append(guideToggle, guideNode);
+
+      // Editor: una línea por frase, por cada bloque de la guía.
+      const guideEdit = document.createElement("div");
+      guideEdit.className = "guideEdit hidden";
+      const guideFields = {};
+      GUIDE_ORDER.forEach(part => {
+        const wrap = document.createElement("div");
+        wrap.className = "guideEditBlock";
+        const label = document.createElement("div");
+        label.className = "guideLabel";
+        label.textContent = GUIDE_LABELS[part];
+        const ta = document.createElement("textarea");
+        ta.className = "textarea";
+        ta.rows = 2;
+        ta.placeholder = "Una frase por línea…";
+        guideFields[part] = ta;
+        wrap.append(label, ta);
+        guideEdit.appendChild(wrap);
+      });
+      const guideHint = document.createElement("div");
+      guideHint.className = "muted tiny";
+      guideHint.textContent = "Escribe una frase por línea. Esta guía se guarda para todas las actas de esta plantilla y no aparece en el acta.";
+      const guideActions = document.createElement("div");
+      guideActions.className = "row baseTextEditActions";
+      const saveGuide = document.createElement("button");
+      saveGuide.type = "button"; saveGuide.className = "btn small primary"; saveGuide.textContent = "Guardar guía";
+      const resetGuide = document.createElement("button");
+      resetGuide.type = "button"; resetGuide.className = "btn small ghost"; resetGuide.textContent = "Restablecer original";
+      const cancelGuide = document.createElement("button");
+      cancelGuide.type = "button"; cancelGuide.className = "btn small ghost"; cancelGuide.textContent = "Cancelar";
+      guideActions.append(saveGuide, resetGuide, cancelGuide);
+      guideEdit.append(guideHint, guideActions);
+
+      const fillGuideFields = () => {
+        const current = getSectionGuide(tplKey, def.key) || {};
+        GUIDE_ORDER.forEach(part => {
+          guideFields[part].value = (Array.isArray(current[part]) ? current[part] : []).join("\n");
+        });
+      };
+      const readGuideFields = () => {
+        const out = {};
+        GUIDE_ORDER.forEach(part => {
+          out[part] = guideFields[part].value.split("\n").map(v => safeTrim(v)).filter(Boolean);
+        });
+        return out;
+      };
+
+      editGuideBtn.onclick = () => {
+        const open = !guideEdit.classList.contains("hidden");
+        if (open){ guideEdit.classList.add("hidden"); return; }
+        fillGuideFields();
+        resetGuide.classList.toggle("hidden", !hasCustomSectionGuide(tplKey, def.key));
+        guideEdit.classList.remove("hidden");
+        guideFields.open.focus();
+      };
+      cancelGuide.onclick = () => guideEdit.classList.add("hidden");
+      saveGuide.onclick = async () => {
+        try{
+          await saveSectionGuide(tplKey, def.key, readGuideFields());
+          showToast("Guía guardada para todas las actas.");
+          renderSections();
+        }catch(e){
+          console.error("No se pudo guardar la guía", e);
+          showToast("No se pudo guardar la guía. Revisa tu conexión o permisos.");
+        }
+      };
+      resetGuide.onclick = async () => {
+        const ok = window.confirm("¿Volver a la guía original de esta sección?");
+        if (!ok) return;
+        try{
+          await saveSectionGuide(tplKey, def.key, {});
+          showToast("Guía restablecida.");
+          renderSections();
+        }catch(e){
+          console.error("No se pudo restablecer la guía", e);
+          showToast("No se pudo restablecer la guía.");
+        }
+      };
+
+      body.append(guideRow, guideNode, guideEdit);
     }
 
     const ta = document.createElement("textarea");
@@ -2489,11 +2650,12 @@ async function loadAppConfig(){
       roles: normalizeList(d.roles),
       coordinators: normalizeList(d.coordinators),
       baseTexts: normalizeBaseTexts(d.baseTexts),
-      sectionConfigs: normalizeSectionConfigs(d.sectionConfigs)
+      sectionConfigs: normalizeSectionConfigs(d.sectionConfigs),
+      sectionGuides: normalizeSectionGuides(d.sectionGuides)
     };
   }catch(e){
     console.error("No se pudo cargar la configuración", e);
-    appConfig = { workers: [], roles: [], coordinators: [], baseTexts: {}, sectionConfigs: {} };
+    appConfig = { workers: [], roles: [], coordinators: [], baseTexts: {}, sectionConfigs: {}, sectionGuides: {} };
   }
   populatePeopleSelects();
 }
@@ -2505,6 +2667,7 @@ async function saveAppConfig(){
     coordinators: appConfig.coordinators,
     baseTexts: normalizeBaseTexts(appConfig.baseTexts),
     sectionConfigs: normalizeSectionConfigs(appConfig.sectionConfigs),
+    sectionGuides: normalizeSectionGuides(appConfig.sectionGuides),
     updatedBy: currentUserEmail || "",
     updatedAt: serverTimestamp()
   });

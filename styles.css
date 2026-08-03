@@ -922,6 +922,17 @@ body{
 .sectionWarn.hidden{ display:none; }
 
 /* Guía del facilitador */
+.guideRow{ gap: 8px; flex-wrap: wrap; align-items: center; margin: 0 0 8px; }
+.guideRow .guideToggle{ margin: 0; flex: 1 1 auto; }
+.guideEdit{
+  margin: 0 0 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(91,61,246,.04);
+  border: 1px dashed rgba(91,61,246,.28);
+}
+.guideEdit.hidden{ display:none; }
+.guideEditBlock{ margin-bottom: 8px; }
 .guideToggle{ margin: 0 0 8px; }
 .guideToggle.active{ background: rgba(12,65,196,.12); }
 .guideBox{
