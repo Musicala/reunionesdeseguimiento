@@ -623,7 +623,7 @@ function defaultSectionConfig(templateKey = "admin"){
 
 // Configuración de secciones compartida por plantilla (nombres, descripciones, orden y visibilidad).
 // Vive en config/app, no en cada acta: al renombrar una sección el cambio aplica a todas las actas.
-function templateSectionConfig(templateKey = "admin"){
+function templateSectionConfig(templateKey = "admin", includeArchived = false){
   const defaults = defaultSectionConfig(templateKey);
   const saved = Array.isArray(appConfig?.sectionConfigs?.[templateKey]) ? appConfig.sectionConfigs[templateKey] : null;
   if (!saved || !saved.length) return defaults;
@@ -651,14 +651,14 @@ function templateSectionConfig(templateKey = "admin"){
   defaults.forEach(def => { if (!byKey.has(def.key)) byKey.set(def.key, { ...def }); });
 
   return Array.from(byKey.values())
-    .filter(item => item.archived !== true)
+    .filter(item => includeArchived || item.archived !== true)
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     .map((item, index) => ({ ...item, order: index }));
 }
 
 async function saveTemplateSectionConfig(templateKey, config){
   if (!appConfig.sectionConfigs || typeof appConfig.sectionConfigs !== "object") appConfig.sectionConfigs = {};
-  appConfig.sectionConfigs[templateKey] = (Array.isArray(config) ? config : []).map((item, index) => ({
+  const clean = (Array.isArray(config) ? config : []).map((item, index) => ({
     key: safeTrim(item.key),
     title: safeTrim(item.title),
     description: safeTrim(item.description || ""),
@@ -668,7 +668,57 @@ async function saveTemplateSectionConfig(templateKey, config){
     custom: item.custom === true,
     order: index
   })).filter(item => item.key);
+  // Las secciones que ya no están en la lista quedan archivadas, no borradas:
+  // así una sección de fábrica que se quitó de esta plantilla no reaparece sola.
+  const keys = new Set(clean.map(i => i.key));
+  templateSectionConfig(templateKey, true).forEach(item => {
+    if (keys.has(item.key)) return;
+    clean.push({
+      key: item.key,
+      title: safeTrim(item.title),
+      description: safeTrim(item.description || ""),
+      enabled: false, visible: false, archived: true,
+      custom: item.custom === true, order: clean.length
+    });
+  });
+  appConfig.sectionConfigs[templateKey] = clean;
   await saveAppConfig();
+}
+
+/* Pertenencia de una sección a cada plantilla (rol).
+   Una sección "pertenece" a la plantilla si está en su config y no está archivada. */
+function templateKeys(){ return Object.keys(TEMPLATES); }
+
+function isSectionInTemplate(sectionKey, templateKey){
+  return templateSectionConfig(templateKey).some(s => s.key === sectionKey);
+}
+
+function isDefaultOfTemplate(sectionKey, templateKey){
+  return (TEMPLATES[templateKey]?.sections || []).some(s => s.key === sectionKey);
+}
+
+async function setSectionInTemplate(templateKey, item, on){
+  const list = templateSectionConfig(templateKey, true).map(x => ({ ...x }));
+  const idx = list.findIndex(x => x.key === item.key);
+  if (on){
+    if (idx >= 0){
+      list[idx].archived = false; list[idx].visible = true; list[idx].enabled = true;
+      if (!safeTrim(list[idx].title)) list[idx].title = safeTrim(item.title);
+    } else {
+      list.push({
+        key: item.key,
+        title: safeTrim(item.title) || item.key,
+        description: safeTrim(item.description || ""),
+        enabled: true, visible: true, archived: false,
+        custom: !isDefaultOfTemplate(item.key, templateKey),
+        order: list.length
+      });
+    }
+  } else {
+    if (idx < 0) return;
+    list[idx].archived = true; list[idx].visible = false; list[idx].enabled = false;
+  }
+  await saveTemplateSectionConfig(templateKey, list);
 }
 
 function allDefaultSections(){
@@ -2417,6 +2467,7 @@ function openSectionsConfigModal(){
   if (!currentMeetingId || !currentMeeting){ showToast("Primero crea o abre una reunion"); return; }
   let draft = getAllSectionDefsForConfig().map(x => ({ ...x }));
   let configSaveTimer = null;
+  const currentTemplate = getTemplate();
 
   const commitDraft = async () => {
     // 1) La estructura (nombres, descripciones, orden, visibilidad) se guarda para todas las actas.
@@ -2461,7 +2512,7 @@ function openSectionsConfigModal(){
 
   const desc = document.createElement("p");
   desc.className = "muted";
-  desc.textContent = "El nombre, la descripcion, el orden y la visibilidad de las secciones se guardan para TODAS las actas. La casilla \"Aplica\" es solo de esta reunion.";
+  desc.textContent = "El nombre, la descripcion, el orden y la visibilidad de las secciones se guardan para TODAS las actas. En \"Aparece en\" defines para que plantillas (Administrativos, Docentes, etc.) existe cada seccion. La casilla \"Aplica\" es solo de esta reunion.";
 
   const addBox = document.createElement("div");
   addBox.className = "configAddBox";
@@ -2473,7 +2524,25 @@ function openSectionsConfigModal(){
   addOrder.className = "input"; addOrder.type = "number"; addOrder.min = "1"; addOrder.placeholder = "Orden";
   const addSection = document.createElement("button");
   addSection.type = "button"; addSection.className = "btn"; addSection.textContent = "+ Agregar seccion";
-  addBox.append(addTitle, addDescription, addOrder, addSection);
+  const addTemplates = document.createElement("div");
+  addTemplates.className = "configTemplates";
+  const addTemplatesLabel = document.createElement("span");
+  addTemplatesLabel.className = "configTemplatesLabel";
+  addTemplatesLabel.textContent = "Aparece en:";
+  addTemplates.appendChild(addTemplatesLabel);
+  const addTemplateChecks = {};
+  templateKeys().forEach(tplKey => {
+    const wrap = document.createElement("label");
+    wrap.className = "configCheck";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = tplKey === currentTemplate;
+    cb.disabled = tplKey === currentTemplate;
+    addTemplateChecks[tplKey] = cb;
+    wrap.append(cb, document.createTextNode(" " + TEMPLATES[tplKey].label));
+    addTemplates.appendChild(wrap);
+  });
+  addBox.append(addTitle, addDescription, addOrder, addSection, addTemplates);
 
   const rows = document.createElement("div");
   rows.className = "configRows";
@@ -2526,7 +2595,45 @@ function openSectionsConfigModal(){
       label.className = "configKey";
       label.textContent = item.custom ? item.key + " - personalizada" : item.key;
 
-      row.append(visible, input, description, appliesWrap, up, down, remove, label);
+      // Plantillas (roles) en las que aparece esta sección.
+      const templatesWrap = document.createElement("div");
+      templatesWrap.className = "configTemplates";
+      const tplLabel = document.createElement("span");
+      tplLabel.className = "configTemplatesLabel";
+      tplLabel.textContent = "Aparece en:";
+      templatesWrap.appendChild(tplLabel);
+      templateKeys().forEach(tplKey => {
+        const wrap = document.createElement("label");
+        wrap.className = "configCheck";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = tplKey === currentTemplate ? true : isSectionInTemplate(item.key, tplKey);
+        cb.onchange = async () => {
+          if (tplKey === currentTemplate){
+            if (!cb.checked){
+              // Quitar de la plantilla actual = sacarla de la lista (queda archivada al guardar).
+              draft = draft.filter(x => x.key !== item.key);
+              renderRows();
+              scheduleConfigSave();
+            }
+            return;
+          }
+          try{
+            await setSectionInTemplate(tplKey, item, cb.checked);
+            showToast(cb.checked
+              ? `Sección agregada a ${TEMPLATES[tplKey].label}.`
+              : `Sección quitada de ${TEMPLATES[tplKey].label}.`);
+          }catch(e){
+            console.error("No se pudo cambiar la plantilla de la sección", e);
+            cb.checked = !cb.checked;
+            showToast("No se pudo cambiar en qué plantillas aparece la sección.");
+          }
+        };
+        wrap.append(cb, document.createTextNode(" " + TEMPLATES[tplKey].label));
+        templatesWrap.appendChild(wrap);
+      });
+
+      row.append(visible, input, description, appliesWrap, up, down, remove, label, templatesWrap);
       rows.appendChild(row);
     });
   }
@@ -2545,9 +2652,16 @@ function openSectionsConfigModal(){
     const desiredOrder = Number(addOrder.value);
     if (Number.isFinite(desiredOrder) && desiredOrder > 0) draft.splice(Math.min(desiredOrder - 1, draft.length), 0, newSection);
     else draft.push(newSection);
+    const extraTemplates = templateKeys().filter(t => t !== currentTemplate && addTemplateChecks[t]?.checked);
     addTitle.value = ""; addDescription.value = ""; addOrder.value = "";
+    templateKeys().forEach(t => { if (t !== currentTemplate) addTemplateChecks[t].checked = false; });
     renderRows();
     scheduleConfigSave();
+    // La sección también se crea en las otras plantillas marcadas.
+    extraTemplates.forEach(tplKey => {
+      setSectionInTemplate(tplKey, newSection, true)
+        .catch(e => console.error("No se pudo agregar la sección a otra plantilla", e));
+    });
   };
 
   const actions = document.createElement("div");

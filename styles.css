@@ -702,6 +702,25 @@ body{
   color: var(--muted);
   white-space: nowrap;
 }
+.configTemplates{
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(11,16,32,.12);
+}
+.configTemplatesLabel{
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+}
+.configTemplates input[type="checkbox"]{
+  width: 16px;
+  height: 16px;
+  accent-color: var(--blue);
+}
 .configKey{
   font-family: var(--mono);
   font-size: 11px;
