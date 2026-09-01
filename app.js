@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
 
 import {
-  signInWithPopup, signOut, onAuthStateChanged
+  signInWithPopup, signInWithRedirect, signOut, onAuthStateChanged, reauthenticateWithPopup, GoogleAuthProvider
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 
 import { db, auth, googleProvider, ALLOWED_EMAILS } from "./firebase.js";
@@ -791,7 +791,7 @@ let dirty = false;
 let lastMeetingList = [];
 let lastSaveError = null;
 let currentUserEmail = "";
-let appConfig = { workers: [], roles: [], coordinators: [], baseTexts: {}, sectionConfigs: {}, sectionGuides: {} };
+let appConfig = { workers: [], roles: [], coordinators: [], workerContacts: {}, baseTexts: {}, sectionConfigs: {}, sectionGuides: {} };
 let unsubscribeMeetings = null;
 let unsubscribeCurrentMeeting = null;
 
@@ -862,6 +862,17 @@ const sectionsWrap = $("sectionsWrap");
 const actionsList = $("actionsList");
 const actionsEmpty = $("actionsEmpty");
 const promptPreview = $("promptPreview");
+const chatgptResult = $("chatgptResult");
+const btnSaveChatgptResult = $("btnSaveChatgptResult");
+const btnDownloadPdf = $("btnDownloadPdf");
+const btnUploadDrive = $("btnUploadDrive");
+const btnNotifyOnly = $("btnNotifyOnly");
+const btnUploadDriveAndNotify = $("btnUploadDriveAndNotify");
+
+const APPS_SCRIPT_NOTIFICATION_URL = "https://script.google.com/macros/s/AKfycbw1BCIjzqadogNjyXnUteCLCC5YY6uPHOAtW_ggC2e1q5gQyMdBubWqh6gsVJZWwEjp4Q/exec";
+const driveProvider = new GoogleAuthProvider();
+driveProvider.addScope("https://www.googleapis.com/auth/drive.file");
+let latestPdfForDrive = null;
 
 const meetingIdTag = $("meetingIdTag");
 const statusTag = $("statusTag");
@@ -1103,7 +1114,9 @@ function makeBaseMeeting(template = "admin"){
     previousActionsReview: [],
     sectionConfig: defaultSectionConfig(t),
     sections,
-    actionItems: []
+    actionItems: [],
+    chatgptResult: "",
+    chatgptResultSavedAt: ""
   };
 }
 
@@ -1142,6 +1155,8 @@ function normalizeMeeting(m){
   out.meetingFrame = safeTrim(out.meetingFrame) ? out.meetingFrame.toString() : defaultMeetingFrameFor(out.template);
   out.employeeKey = normEmployeeKey(out.employeeName);
   out.participantName = (out.participantName ?? "").toString();
+  out.chatgptResult = (out.chatgptResult ?? "").toString();
+  out.chatgptResultSavedAt = safeTrim(out.chatgptResultSavedAt);
   out.previousActionsReview = Array.isArray(out.previousActionsReview)
     ? out.previousActionsReview.map(normalizePrevReview)
     : [];
@@ -1638,6 +1653,8 @@ function renderAll(){
   fMeetingKind && (fMeetingKind.value = currentMeeting.meetingKind || "");
   fObjective && (fObjective.value = currentMeeting.objective || "");
   fMeetingFrame && (fMeetingFrame.value = currentMeeting.meetingFrame || DEFAULT_MEETING_FRAME);
+  chatgptResult && (chatgptResult.value = currentMeeting.chatgptResult || "");
+  if (btnSaveChatgptResult) btnSaveChatgptResult.disabled = false;
 
   renderKindBadgeAndAlert();
 
@@ -1677,6 +1694,8 @@ function renderEmptyState(){
     if (btnCopyActions) btnCopyActions.disabled = true;
     if (btnFinalize) btnFinalize.disabled = true;
     if (btnUnfinalize) btnUnfinalize.disabled = true;
+    if (chatgptResult) chatgptResult.value = "";
+    if (btnSaveChatgptResult) btnSaveChatgptResult.disabled = true;
   }
 }
 
@@ -2442,6 +2461,373 @@ function backupJson(){
   showToast("Respaldo JSON descargado ✅");
 }
 
+/* =====================================================================
+   RESULTADO CHATGPT / PDF CON MEMBRETE
+===================================================================== */
+function loadExternalScript(src, id){
+  return new Promise((resolve, reject) => {
+    const existing = document.getElementById(id);
+    if (existing){
+      if (window.jspdf?.jsPDF || window.jsPDF) return resolve();
+      existing.addEventListener("load", resolve, { once: true });
+      existing.addEventListener("error", reject, { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = id;
+    script.src = src;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("No se pudo cargar la librería PDF."));
+    document.head.appendChild(script);
+  });
+}
+
+async function getPdfImage(src){
+  const response = await fetch(src);
+  if (!response.ok) throw new Error(`No se pudo cargar ${src}`);
+  const blob = await response.blob();
+  const data = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+  const dimensions = await new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    image.onerror = reject;
+    image.src = data;
+  });
+  return { data, ...dimensions };
+}
+
+function pdfSafeFileName(value){
+  return safeTrim(value)
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "") || "acta";
+}
+
+function getWorkerDestination(){
+  const worker = safeTrim(currentMeeting?.employeeName);
+  return appConfig?.workerContacts?.[normEmployeeKey(worker)] || null;
+}
+
+function driveFolderId(value){
+  const match = safeTrim(value).match(/\/folders\/([^/?#]+)/);
+  return match ? match[1] : "";
+}
+
+async function getDriveAccessToken(){
+  if (!auth.currentUser) throw new Error("Inicia sesión nuevamente para autorizar Drive.");
+  try{
+    // Debe ser la misma cuenta de la sesión de Firebase; de otro modo Google
+    // rechaza la reautenticación con auth/user-mismatch.
+    driveProvider.setCustomParameters({ login_hint: auth.currentUser.email || "", prompt: "select_account" });
+    const result = await reauthenticateWithPopup(auth.currentUser, driveProvider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (!credential?.accessToken) throw new Error("Google no entregó permiso para Drive.");
+    return credential.accessToken;
+  }catch(err){
+    if (err?.code === "auth/user-mismatch") {
+      throw new Error("En Google selecciona la misma cuenta con la que abriste el aplicativo.");
+    }
+    throw err;
+  }
+}
+
+async function uploadPdfToDrive(pdfFile, folderUrl){
+  const folderId = driveFolderId(folderUrl);
+  if (!folderId) throw new Error("El enlace de la carpeta de Drive no es válido.");
+  const token = await getDriveAccessToken();
+  const metadata = new Blob([JSON.stringify({
+    name: pdfFile.filename,
+    mimeType: "application/pdf",
+    parents: [folderId]
+  })], { type: "application/json" });
+  const form = new FormData();
+  form.append("metadata", metadata);
+  form.append("file", pdfFile.blob, pdfFile.filename);
+  const response = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form
+  });
+  if (!response.ok){
+    let detail = "";
+    let reason = "";
+    try{
+      const errorBody = await response.json();
+      detail = errorBody?.error?.message || "";
+      reason = errorBody?.error?.errors?.[0]?.reason || "";
+    }catch{}
+    if (response.status === 403) {
+      if (reason === "accessNotConfigured" || /Drive API has not been used|API.*not enabled/i.test(detail)) {
+        throw new Error("La API de Google Drive no está habilitada en el proyecto. Actívala y vuelve a intentar.");
+      }
+      if (reason === "insufficientPermissions" || /insufficient authentication scopes/i.test(detail)) {
+        throw new Error("Google no autorizó el permiso para crear archivos en Drive. Vuelve a autorizar Drive con la misma cuenta.");
+      }
+      if (reason === "storageQuotaExceeded") {
+        throw new Error("La cuenta que carga el archivo no tiene espacio disponible en Google Drive.");
+      }
+      throw new Error(detail || "Drive rechazó la carga. Verifica que la misma cuenta tenga rol Editor en esta carpeta.");
+    }
+    throw new Error(detail || "Drive rechazó la carga del PDF.");
+  }
+  return response.json();
+}
+
+async function requestEmailNotification(destination, fileLink){
+  const idToken = await auth.currentUser?.getIdToken(true);
+  if (!idToken) throw new Error("No hay una sesión válida para enviar la notificación.");
+  // Apps Script no permite leer la respuesta por CORS; el token de Firebase
+  // protege el endpoint y el envío se procesa en segundo plano.
+  const response = await fetch(APPS_SCRIPT_NOTIFICATION_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({
+      idToken,
+      destinatarios: [destination.email],
+      persona: currentMeeting?.employeeName || "",
+      fecha: currentMeeting?.dateISO || "",
+      enlacePdf: fileLink || ""
+    })
+  });
+  if (!response.ok) throw new Error("Apps Script no respondió correctamente al enviar el correo.");
+  let result;
+  try { result = await response.json(); }
+  catch { throw new Error("Apps Script devolvió una respuesta no válida."); }
+  if (!result?.ok) throw new Error(result?.error || "Apps Script rechazó el envío del correo.");
+}
+
+function setPdfActionButtons({ uploadDisabled, notifyDisabled, bothDisabled } = {}){
+  if (btnUploadDrive) btnUploadDrive.disabled = !!uploadDisabled;
+  if (btnNotifyOnly) btnNotifyOnly.disabled = !!notifyDisabled;
+  if (btnUploadDriveAndNotify) btnUploadDriveAndNotify.disabled = !!bothDisabled;
+}
+
+async function uploadPdfOnly(){
+  if (!latestPdfForDrive){ showToast("Primero genera el PDF"); return; }
+  const destination = getWorkerDestination();
+  if (!destination?.driveFolderUrl){ showToast("Configura la carpeta de Drive de este trabajador"); return; }
+  const originalLabel = btnUploadDrive?.textContent;
+  setPdfActionButtons({ uploadDisabled: true, notifyDisabled: true, bothDisabled: true });
+  if (btnUploadDrive) btnUploadDrive.textContent = "Subiendo…";
+  try{
+    const uploaded = await uploadPdfToDrive(latestPdfForDrive, destination.driveFolderUrl);
+    latestPdfForDrive.driveLink = uploaded.webViewLink;
+    showToast("PDF subido a Drive ✅");
+  }catch(err){
+    console.error("Drive upload failed:", err);
+    showToast(err.message || "No se pudo subir el PDF a Drive");
+  }finally{
+    if (btnUploadDrive) btnUploadDrive.textContent = originalLabel || "Subir solo a Drive";
+    setPdfActionButtons({ uploadDisabled: false, notifyDisabled: !latestPdfForDrive?.driveLink, bothDisabled: false });
+  }
+}
+
+async function notifyPdfOnly(){
+  if (!latestPdfForDrive?.driveLink){ showToast("Primero sube el PDF a Drive"); return; }
+  const destination = getWorkerDestination();
+  if (!destination?.email){ showToast("Configura el correo de este trabajador"); return; }
+  const originalLabel = btnNotifyOnly?.textContent;
+  setPdfActionButtons({ uploadDisabled: true, notifyDisabled: true, bothDisabled: true });
+  if (btnNotifyOnly) btnNotifyOnly.textContent = "Enviando…";
+  try{
+    await requestEmailNotification(destination, latestPdfForDrive.driveLink);
+    showToast("Notificación enviada ✅");
+  }catch(err){
+    console.error("Email notification failed:", err);
+    showToast(err.message || "No se pudo enviar la notificación");
+  }finally{
+    if (btnNotifyOnly) btnNotifyOnly.textContent = originalLabel || "Enviar notificación";
+    setPdfActionButtons({ uploadDisabled: false, notifyDisabled: false, bothDisabled: false });
+  }
+}
+
+async function uploadPdfAndNotify(){
+  if (!latestPdfForDrive){ showToast("Primero genera el PDF"); return; }
+  const destination = getWorkerDestination();
+  if (!destination?.driveFolderUrl || !destination?.email){
+    showToast("Configura el correo y la carpeta de Drive de este trabajador");
+    return;
+  }
+  const originalLabel = btnUploadDriveAndNotify?.textContent;
+  setPdfActionButtons({ uploadDisabled: true, notifyDisabled: true, bothDisabled: true });
+  if (btnUploadDriveAndNotify) btnUploadDriveAndNotify.textContent = "Subiendo…";
+  try{
+    const uploaded = await uploadPdfToDrive(latestPdfForDrive, destination.driveFolderUrl);
+    latestPdfForDrive.driveLink = uploaded.webViewLink;
+    if (btnUploadDriveAndNotify) btnUploadDriveAndNotify.textContent = "Notificando…";
+    await requestEmailNotification(destination, uploaded.webViewLink);
+    showToast("PDF subido y notificación enviada ✅");
+  }catch(err){
+    console.error("Drive/email failed:", err);
+    showToast(err.message || "No se pudo completar la acción");
+  }finally{
+    if (btnUploadDriveAndNotify) btnUploadDriveAndNotify.textContent = originalLabel || "Subir y notificar";
+    setPdfActionButtons({ uploadDisabled: false, notifyDisabled: !latestPdfForDrive?.driveLink, bothDisabled: false });
+  }
+}
+
+// ChatGPT suele entregar las actas en Markdown. Para el PDF lo convertimos a
+// bloques legibles, evitando que se impriman los símbolos #, ** y |.
+function markdownToPdfBlocks(markdown){
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  const blocks = [];
+  const clean = (text) => text
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/`(.*?)`/g, "$1")
+    .trim();
+  const isTableLine = (line) => /^\s*\|.*\|\s*$/.test(line);
+  const isTableSeparator = (line) => /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+
+  for (let index = 0; index < lines.length; index += 1){
+    const line = lines[index];
+    if (isTableLine(line)){
+      const rows = [];
+      while (index < lines.length && isTableLine(lines[index])){
+        if (!isTableSeparator(lines[index])){
+          const cells = lines[index].split("|").slice(1, -1).map(clean);
+          if (cells.some(Boolean)) rows.push(cells);
+        }
+        index += 1;
+      }
+      index -= 1;
+      // La primera fila normalmente es el encabezado de la tabla; las demás
+      // se presentan como campo: valor para que el PDF sea fácil de leer.
+      const dataRows = rows.length > 1 ? rows.slice(1) : rows;
+      dataRows.forEach(cells => blocks.push({
+        type: "field",
+        label: cells[0] || "",
+        text: cells.slice(1).filter(Boolean).join(" · ") || cells[0] || ""
+      }));
+      continue;
+    }
+    const heading = line.match(/^\s*(#{1,6})\s+(.+)$/);
+    if (heading){
+      blocks.push({ type: heading[1].length <= 2 ? "heading" : "subheading", text: clean(heading[2]) });
+      continue;
+    }
+    const bullet = line.match(/^\s*[-*+]\s+(.+)$/) || line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (bullet){ blocks.push({ type: "bullet", text: clean(bullet[1]) }); continue; }
+    blocks.push({ type: line.trim() ? "text" : "space", text: clean(line) });
+  }
+  return blocks;
+}
+
+async function saveChatgptResult(){
+  if (!currentMeetingId || !currentMeeting){ showToast("Primero abre una reunión"); return; }
+  const content = (chatgptResult?.value || "").trim();
+  if (!content){ showToast("Pega primero el resultado de ChatGPT"); chatgptResult?.focus(); return; }
+  currentMeeting.chatgptResult = content;
+  currentMeeting.chatgptResultSavedAt = new Date().toISOString();
+  const saved = await saveNow({ reason: "Resultado de ChatGPT guardado" });
+  if (saved) showToast("Resultado de ChatGPT guardado como borrador ✅");
+}
+
+async function downloadChatgptPdf(){
+  const content = (chatgptResult?.value || "").trim();
+  if (!content){ showToast("Pega primero el resultado de ChatGPT"); chatgptResult?.focus(); return; }
+
+  const originalLabel = btnDownloadPdf?.textContent;
+  if (btnDownloadPdf){ btnDownloadPdf.disabled = true; btnDownloadPdf.textContent = "Generando PDF…"; }
+  try{
+    if (!(window.jspdf?.jsPDF || window.jsPDF)){
+      await loadExternalScript("https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js", "jspdf-library");
+    }
+    const JsPDF = window.jspdf?.jsPDF || window.jsPDF;
+    if (!JsPDF) throw new Error("La librería PDF no está disponible.");
+
+    const [header, footer] = await Promise.all([
+      getPdfImage("./membrete.png"),
+      getPdfImage("./membrete_img_5.png")
+    ]);
+    const pdf = new JsPDF({ orientation: "portrait", unit: "mm", format: "letter" });
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 18;
+    const headerHeight = (pageWidth * header.height) / header.width;
+    const footerHeight = (pageWidth * footer.height) / footer.width;
+    const top = headerHeight + 14;
+    const bottom = footerHeight + 12;
+    const maxWidth = pageWidth - margin * 2;
+    const lineHeight = 5.4;
+    let y = top;
+    let pageNumber = 1;
+
+    const drawMembrete = () => {
+      pdf.addImage(header.data, "PNG", 0, 0, pageWidth, headerHeight);
+      pdf.addImage(footer.data, "PNG", 0, pageHeight - footerHeight, pageWidth, footerHeight);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8);
+      pdf.setTextColor(110, 110, 110);
+      pdf.text(`Página ${pageNumber}`, pageWidth - margin, pageHeight - footerHeight - 5, { align: "right" });
+      pdf.setTextColor(30, 30, 30);
+    };
+    const addPage = () => { pdf.addPage(); pageNumber += 1; y = top; drawMembrete(); };
+
+    drawMembrete();
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(14);
+    pdf.text("ACTA DE REUNIÓN", pageWidth / 2, y, { align: "center" });
+    y += 9;
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(9);
+    const meetingMeta = [currentMeeting?.employeeName, currentMeeting?.dateISO].filter(Boolean).join(" · ");
+    if (meetingMeta){ pdf.text(meetingMeta, pageWidth / 2, y, { align: "center" }); y += 10; }
+    pdf.setFontSize(10.5);
+
+    const ensureSpace = (height) => { if (y + height > pageHeight - bottom) addPage(); };
+    for (const block of markdownToPdfBlocks(content)){
+      if (block.type === "space"){ y += lineHeight * 0.55; continue; }
+      if (block.type === "heading" || block.type === "subheading"){
+        const size = block.type === "heading" ? 12 : 11;
+        pdf.setFont("helvetica", "bold"); pdf.setFontSize(size);
+        const lines = pdf.splitTextToSize(block.text, maxWidth);
+        ensureSpace(lines.length * lineHeight + 4);
+        lines.forEach(line => { pdf.text(line, margin, y); y += lineHeight; });
+        y += 2.5;
+        pdf.setFont("helvetica", "normal"); pdf.setFontSize(10.5);
+        continue;
+      }
+      const prefix = block.type === "bullet" ? "• " : "";
+      if (block.type === "field"){
+        pdf.setFont("helvetica", "bold"); pdf.setFontSize(10.5);
+        const label = `${block.label}:`;
+        const labelWidth = pdf.getTextWidth(label) + 2;
+        const valueLines = pdf.splitTextToSize(block.text, Math.max(45, maxWidth - labelWidth));
+        ensureSpace(Math.max(1, valueLines.length) * lineHeight + 1);
+        pdf.text(label, margin, y);
+        pdf.setFont("helvetica", "normal");
+        valueLines.forEach((line, position) => {
+          pdf.text(line, position === 0 ? margin + labelWidth : margin, y);
+          y += lineHeight;
+        });
+        y += 0.8;
+        continue;
+      }
+      const lines = pdf.splitTextToSize(prefix + block.text, maxWidth);
+      ensureSpace(lines.length * lineHeight + 1);
+      lines.forEach(line => { pdf.text(line, margin, y); y += lineHeight; });
+      y += 1.2;
+    }
+
+    const date = safeTrim(currentMeeting?.dateISO) || isoToday();
+    const filename = `acta-${pdfSafeFileName(currentMeeting?.employeeName)}-${date}.pdf`;
+    latestPdfForDrive = { blob: pdf.output("blob"), filename };
+    setPdfActionButtons({ uploadDisabled: false, notifyDisabled: true, bothDisabled: false });
+    pdf.save(filename);
+    showToast("PDF descargado ✅");
+  }catch(err){
+    console.error("PDF generation failed:", err);
+    showToast("No se pudo generar el PDF. Revisa tu conexión e inténtalo de nuevo.");
+  }finally{
+    if (btnDownloadPdf){ btnDownloadPdf.disabled = false; btnDownloadPdf.textContent = originalLabel || "Descargar PDF"; }
+  }
+}
+
 async function duplicateMeeting(){
   if (!currentMeeting){ showToast("Abre una reunión primero"); return; }
   const ok = window.confirm("¿Crear una nueva reunión con los datos base de este trabajador (sin notas ni acuerdos)?");
@@ -2709,6 +3095,22 @@ function normalizeList(arr){
     .sort((a, b) => a.localeCompare(b, "es"));
 }
 
+// Datos de destino por trabajador: se guardan por una llave normalizada para
+// que un cambio de mayúsculas en el nombre no rompa la configuración.
+function normalizeWorkerContacts(raw, workers = []){
+  const out = {};
+  if (!raw || typeof raw !== "object") return out;
+  const allowed = new Set(normalizeList(workers).map(normEmployeeKey));
+  Object.entries(raw).forEach(([key, value]) => {
+    const normalizedKey = normEmployeeKey(key);
+    if (!normalizedKey || (allowed.size && !allowed.has(normalizedKey))) return;
+    const email = safeTrim(value?.email).toLowerCase();
+    const driveFolderUrl = safeTrim(value?.driveFolderUrl);
+    if (email || driveFolderUrl) out[normalizedKey] = { email, driveFolderUrl };
+  });
+  return out;
+}
+
 // Sanea el mapa de textos base { plantilla: { seccion: texto } }
 function normalizeBaseTexts(raw){
   const out = {};
@@ -2763,13 +3165,14 @@ async function loadAppConfig(){
       workers: normalizeList(d.workers),
       roles: normalizeList(d.roles),
       coordinators: normalizeList(d.coordinators),
+      workerContacts: normalizeWorkerContacts(d.workerContacts, d.workers),
       baseTexts: normalizeBaseTexts(d.baseTexts),
       sectionConfigs: normalizeSectionConfigs(d.sectionConfigs),
       sectionGuides: normalizeSectionGuides(d.sectionGuides)
     };
   }catch(e){
     console.error("No se pudo cargar la configuración", e);
-    appConfig = { workers: [], roles: [], coordinators: [], baseTexts: {}, sectionConfigs: {}, sectionGuides: {} };
+    appConfig = { workers: [], roles: [], coordinators: [], workerContacts: {}, baseTexts: {}, sectionConfigs: {}, sectionGuides: {} };
   }
   populatePeopleSelects();
 }
@@ -2779,6 +3182,7 @@ async function saveAppConfig(){
     workers: appConfig.workers,
     roles: appConfig.roles,
     coordinators: appConfig.coordinators,
+    workerContacts: normalizeWorkerContacts(appConfig.workerContacts, appConfig.workers),
     baseTexts: normalizeBaseTexts(appConfig.baseTexts),
     sectionConfigs: normalizeSectionConfigs(appConfig.sectionConfigs),
     sectionGuides: normalizeSectionGuides(appConfig.sectionGuides),
@@ -2885,13 +3289,14 @@ function openConfigListsModal(){
 
   const desc = document.createElement("p");
   desc.className = "muted tiny";
-  desc.textContent = "Agrega o quita trabajadores, cargos y coordinadores. Se comparten para todas las actas.";
+  desc.textContent = "Agrega o quita trabajadores, cargos y coordinadores. También configura el correo y la carpeta de Drive de cada trabajador.";
 
   // Estado editable local (se aplica al guardar)
   const draft = {
     workers: appConfig.workers.slice(),
     roles: appConfig.roles.slice(),
-    coordinators: appConfig.coordinators.slice()
+    coordinators: appConfig.coordinators.slice(),
+    workerContacts: JSON.parse(JSON.stringify(appConfig.workerContacts || {}))
   };
 
   const listsWrap = document.createElement("div");
@@ -2921,7 +3326,11 @@ function openConfigListsModal(){
         const x = document.createElement("button");
         x.type = "button"; x.className = "configChipX"; x.textContent = "✕";
         x.title = "Quitar";
-        x.onclick = () => { draft[key].splice(idx, 1); renderChips(); };
+        x.onclick = () => {
+          draft[key].splice(idx, 1);
+          renderChips();
+          if (key === "workers") renderWorkerDestinations();
+        };
         chip.append(t, x);
         chips.appendChild(chip);
       });
@@ -2939,7 +3348,9 @@ function openConfigListsModal(){
       if (!draft[key].some(o => o.toLowerCase() === v.toLowerCase())){
         draft[key] = normalizeList([...draft[key], v]);
       }
-      input.value = ""; renderChips(); input.focus();
+      input.value = ""; renderChips();
+      if (key === "workers") renderWorkerDestinations();
+      input.focus();
     }
     addBtn.onclick = doAdd;
     input.onkeydown = (e) => { if (e.key === "Enter"){ e.preventDefault(); doAdd(); } };
@@ -2951,6 +3362,61 @@ function openConfigListsModal(){
   }
 
   buildGroup("Trabajadores", "workers");
+
+  const destinationsBox = document.createElement("div");
+  destinationsBox.className = "configGroup workerDestinations";
+  const destinationsTitle = document.createElement("div");
+  destinationsTitle.className = "label";
+  destinationsTitle.textContent = "Destino por trabajador";
+  const destinationsHint = document.createElement("p");
+  destinationsHint.className = "muted tiny";
+  destinationsHint.textContent = "Estos datos se usarán al subir el PDF a Drive y enviar la notificación automática.";
+  const destinationsRows = document.createElement("div");
+  destinationsRows.className = "workerDestinationRows";
+
+  function renderWorkerDestinations(){
+    destinationsRows.innerHTML = "";
+    const workers = normalizeList(draft.workers);
+    if (!workers.length){
+      const empty = document.createElement("div");
+      empty.className = "emptySmall";
+      empty.textContent = "Agrega primero un trabajador para configurar sus datos.";
+      destinationsRows.appendChild(empty);
+      return;
+    }
+    workers.forEach(worker => {
+      const key = normEmployeeKey(worker);
+      const data = draft.workerContacts[key] || {};
+      const row = document.createElement("div");
+      row.className = "workerDestinationRow";
+      const name = document.createElement("div");
+      name.className = "workerDestinationName";
+      name.textContent = worker;
+      const email = document.createElement("input");
+      email.className = "input";
+      email.type = "email";
+      email.placeholder = "Correo para notificación";
+      email.value = data.email || "";
+      const folder = document.createElement("input");
+      folder.className = "input";
+      folder.type = "url";
+      folder.placeholder = "Enlace de carpeta de Drive";
+      folder.value = data.driveFolderUrl || "";
+      const sync = () => {
+        const next = { email: safeTrim(email.value).toLowerCase(), driveFolderUrl: safeTrim(folder.value) };
+        if (next.email || next.driveFolderUrl) draft.workerContacts[key] = next;
+        else delete draft.workerContacts[key];
+      };
+      email.oninput = sync;
+      folder.oninput = sync;
+      row.append(name, email, folder);
+      destinationsRows.appendChild(row);
+    });
+  }
+  destinationsBox.append(destinationsTitle, destinationsHint, destinationsRows);
+  listsWrap.appendChild(destinationsBox);
+  renderWorkerDestinations();
+
   buildGroup("Cargos", "roles");
   buildGroup("Coordinadores", "coordinators");
 
@@ -2969,7 +3435,11 @@ function openConfigListsModal(){
     appConfig = {
       workers: normalizeList(draft.workers),
       roles: normalizeList(draft.roles),
-      coordinators: normalizeList(draft.coordinators)
+      coordinators: normalizeList(draft.coordinators),
+      workerContacts: normalizeWorkerContacts(draft.workerContacts, draft.workers),
+      baseTexts: appConfig.baseTexts,
+      sectionConfigs: appConfig.sectionConfigs,
+      sectionGuides: appConfig.sectionGuides
     };
     populatePeopleSelects();
     save.disabled = true; save.textContent = "Guardando…";
@@ -3177,6 +3647,11 @@ function wireButtons(){
 
   btnRefreshPrompt && (btnRefreshPrompt.onclick = () => renderActionsAndPrompt());
   btnSelectPrompt && (btnSelectPrompt.onclick = () => { if (!promptPreview) return; promptPreview.focus(); promptPreview.select(); });
+  btnSaveChatgptResult && (btnSaveChatgptResult.onclick = saveChatgptResult);
+  btnDownloadPdf && (btnDownloadPdf.onclick = downloadChatgptPdf);
+  btnUploadDrive && (btnUploadDrive.onclick = uploadPdfOnly);
+  btnNotifyOnly && (btnNotifyOnly.onclick = notifyPdfOnly);
+  btnUploadDriveAndNotify && (btnUploadDriveAndNotify.onclick = uploadPdfAndNotify);
 
   btnExpandAll && (btnExpandAll.onclick = () => getSectionDefs().forEach(s => toggleSectionBody(s.key, true)));
   btnCollapseAll && (btnCollapseAll.onclick = () => getSectionDefs().forEach(s => toggleSectionBody(s.key, false)));
@@ -3262,7 +3737,11 @@ function wireAuth(){
     btnGoogleLogin.onclick = async () => {
       clearAuthError();
       btnGoogleLogin.disabled = true;
-      try{ await signInWithPopup(auth, googleProvider); }
+      try{
+        // Usamos ventana emergente: en Opera el flujo de redireccionamiento puede
+        // perder la sesión de Firebase al volver al sitio.
+        await signInWithPopup(auth, googleProvider);
+      }
       catch(e){
         console.error(e);
         if (e?.code !== "auth/popup-closed-by-user" && e?.code !== "auth/cancelled-popup-request")

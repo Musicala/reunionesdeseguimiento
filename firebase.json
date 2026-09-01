@@ -8,8 +8,23 @@
       "firebase.json",
       ".firebaserc",
       "**/.*",
+      "**/.firebase/**",
+      "**/.git/**",
       "**/node_modules/**",
+      "**/.vscode/**",
+      "**/appscript/**",
+      "**/*.zip",
       "firestore.rules"
+    ],
+    "headers": [
+      {
+        "source": "**/index.html",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      },
+      {
+        "source": "**/*.js",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      }
     ]
   }
 }

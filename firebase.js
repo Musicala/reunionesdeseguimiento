@@ -34,10 +34,13 @@ export const db = initializeFirestore(app, {
 // Autenticación con Google
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+// Evita que Google reutilice silenciosamente otra sesión del navegador.
+googleProvider.setCustomParameters({ prompt: "select_account" });
 
 // Correos autorizados a usar la app.
 // (En minúsculas. Debe coincidir con la lista en firestore.rules)
 export const ALLOWED_EMAILS = [
+  "imusicala@gmail.com",
   "alekcaballeromusic@gmail.com",
   "catalina.medina.leal@gmail.com"
 ];

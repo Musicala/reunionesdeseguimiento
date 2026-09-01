@@ -423,6 +423,45 @@
 
       </section>
 
+      <!-- ============================= -->
+      <!-- RESULTADO CHATGPT / PDF -->
+      <!-- ============================= -->
+      <section class="card meetingOnly" aria-label="Convertir resultado de ChatGPT a PDF">
+        <div class="cardHeader">
+          <div>
+            <h2 class="h2">Resultado de ChatGPT</h2>
+            <p class="muted">Pega aquí el texto final que te entregó ChatGPT y descárgalo en PDF con el membrete institucional.</p>
+          </div>
+        </div>
+
+        <textarea
+          id="chatgptResult"
+          class="textarea"
+          rows="16"
+          placeholder="Pega aquí el resultado de ChatGPT…"
+        ></textarea>
+
+        <div class="row mini">
+          <div class="muted tiny">El encabezado y el pie de página se agregan automáticamente en todas las páginas.</div>
+          <div class="spacer"></div>
+          <button id="btnSaveChatgptResult" class="btn" type="button">
+            Guardar resultado
+          </button>
+          <button id="btnDownloadPdf" class="btn primary" type="button">
+            Descargar PDF
+          </button>
+          <button id="btnUploadDrive" class="btn" type="button" disabled>
+            Subir solo a Drive
+          </button>
+          <button id="btnNotifyOnly" class="btn" type="button" disabled>
+            Enviar notificación
+          </button>
+          <button id="btnUploadDriveAndNotify" class="btn primary" type="button" disabled>
+            Subir y notificar
+          </button>
+        </div>
+      </section>
+
     </main>
   </div>
 
@@ -434,7 +473,7 @@
   <!-- ============================= -->
   <!-- APP -->
   <!-- ============================= -->
-  <script type="module" defer src="./app.js"></script>
+  <script type="module" defer src="./app.js?v=20260811-drive-notify"></script>
 
   <!-- Minimal accesibility helpers -->
   <script>

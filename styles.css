@@ -750,6 +750,29 @@ body{
   gap: 8px;
   margin: 10px 0;
 }
+
+.workerDestinationRows{
+  display:grid;
+  gap:10px;
+  margin-top:10px;
+}
+.workerDestinationRow{
+  display:grid;
+  grid-template-columns:minmax(150px, .7fr) minmax(210px, 1fr) minmax(250px, 1.4fr);
+  gap:8px;
+  align-items:center;
+  padding:10px;
+  border:1px solid var(--line, #d9dfef);
+  border-radius:12px;
+  background:#fff;
+}
+.workerDestinationName{
+  font-weight:750;
+  color:var(--ink, #172033);
+}
+@media (max-width: 760px){
+  .workerDestinationRow{ grid-template-columns:1fr; }
+}
 .configChip{
   display: inline-flex;
   align-items: center;
